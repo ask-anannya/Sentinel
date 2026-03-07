@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>IT Administration Console v2.4 — Edit User</title>
+    <style>
+        body { font-family: Arial, Verdana, sans-serif; background: #3a3a3a; margin: 0; padding: 0; font-size: 12px; }
+        .topbar { background: #2c2c2c; color: #fff; padding: 10px 20px; border-bottom: 2px solid #555; }
+        .topbar h1 { margin: 0; font-size: 16px; font-weight: bold; }
+        .session-warning { background: #856404; color: #fff; padding: 6px 20px; font-size: 11px; }
+        .main { display: flex; min-height: calc(100vh - 80px); }
+        .sidebar { background: #2c2c2c; width: 180px; padding: 16px 0; border-right: 1px solid #555; flex-shrink: 0; }
+        .sidebar a { display: block; color: #ccc; text-decoration: none; padding: 6px 14px; font-size: 12px; }
+        .sidebar a:hover { background: #3a3a3a; color: #fff; }
+        .content { flex: 1; padding: 20px; background: #f0f0f0; }
+        .form-panel { background: #fff; border: 1px solid #ccc; padding: 20px; max-width: 550px; }
+        .form-panel h2 { margin: 0 0 16px 0; font-size: 14px; color: #2c2c2c; border-bottom: 2px solid #4a90d9; padding-bottom: 8px; }
+        .field-row { margin-bottom: 12px; }
+        label { display: block; font-size: 11px; font-weight: bold; color: #555; margin-bottom: 3px; }
+        .field-val { font-size: 12px; color: #222; padding: 4px 0; }
+        select, input[type="text"] { width: 280px; padding: 5px; border: 1px solid #999; font-size: 12px; }
+        .btn { padding: 6px 18px; font-size: 12px; font-weight: bold; cursor: pointer; border: 1px solid; margin-right: 8px; margin-top: 12px; }
+        .btn-save { background: #4a90d9; color: #fff; border-color: #2c6fad; }
+        .btn-disable { background: #dc3545; color: #fff; border-color: #b02a37; }
+        .btn-revoke { background: #fd7e14; color: #fff; border-color: #d4610a; }
+        .btn-cancel { background: #e0e0e0; color: #333; border-color: #999; }
+        .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 8px 12px; margin-bottom: 14px; font-size: 11px; }
+        .footer { background: #2c2c2c; color: #888; text-align: center; padding: 8px; font-size: 10px; }
+    </style>
+</head>
+<body>
+    <div class="topbar"><h1>IT Administration Console v2.4</h1></div>
+    <div class="session-warning">&#9888; Session active | Logged in as: admin</div>
+    <div class="main">
+        <div class="sidebar">
+            <a href="/users">&#128101; User Management</a>
+            <a href="/access-levels">&#128272; Access Control</a>
+            <a href="/logout">&#128274; Logout</a>
+        </div>
+        <div class="content">
+            <div class="form-panel">
+                <h2>Edit User: {{ user.username }}</h2>
+                {% if message %}
+                <div class="success">&#10003; {{ message }}</div>
+                {% endif %}
+                <div class="field-row"><label>Username:</label><div class="field-val">{{ user.username }}</div></div>
+                <div class="field-row"><label>Full Name:</label><div class="field-val">{{ user.full_name }}</div></div>
+                <div class="field-row"><label>Email:</label><div class="field-val">{{ user.email }}</div></div>
+                <div class="field-row"><label>Department:</label><div class="field-val">{{ user.department }}</div></div>
+                <div class="field-row"><label>Current Status:</label><div class="field-val"><strong>{{ user.status }}</strong></div></div>
+                <div class="field-row"><label>Current Access Level:</label><div class="field-val"><strong>{{ user.access_level }}</strong></div></div>
+                <form method="POST">
+                    <div class="field-row">
+                        <label for="access_level">Access Level:</label>
+                        <select name="access_level" id="access_level">
+                            <option value="Administrator" {% if user.access_level == 'Administrator' %}selected{% endif %}>Administrator</option>
+                            <option value="Power User" {% if user.access_level == 'Power User' %}selected{% endif %}>Power User</option>
+                            <option value="Standard User" {% if user.access_level == 'Standard User' %}selected{% endif %}>Standard User</option>
+                        </select>
+                    </div>
+                    <div class="field-row">
+                        <label for="role">Role:</label>
+                        <select name="role" id="role">
+                            <option value="Network Administrator" {% if user.role == 'Network Administrator' %}selected{% endif %}>Network Administrator</option>
+                            <option value="System Administrator" {% if user.role == 'System Administrator' %}selected{% endif %}>System Administrator</option>
+                            <option value="DevOps Engineer" {% if user.role == 'DevOps Engineer' %}selected{% endif %}>DevOps Engineer</option>
+                            <option value="Security Engineer" {% if user.role == 'Security Engineer' %}selected{% endif %}>Security Engineer</option>
+                            <option value="Intern" {% if user.role == 'Intern' %}selected{% endif %}>Intern</option>
+                            <option value="Finance Manager" {% if user.role == 'Finance Manager' %}selected{% endif %}>Finance Manager</option>
+                            <option value="Marketing Manager" {% if user.role == 'Marketing Manager' %}selected{% endif %}>Marketing Manager</option>
+                        </select>
+                    </div>
+                    <button type="submit" name="action" value="save" class="btn btn-save">Save Changes</button>
+                    <button type="submit" name="action" value="revoke_admin" class="btn btn-revoke" onclick="return confirm('Revoke admin privileges?')">Revoke Admin</button>
+                    <button type="submit" name="action" value="disable" class="btn btn-disable" onclick="return confirm('Disable this account?')">Disable Account</button>
+                    <a href="/users"><button type="button" class="btn btn-cancel">Cancel</button></a>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="footer">IT Admin Console v2.4.7 | Build 20141203 | &copy; 2014 InternalSystems Corp</div>
+</body>
+</html>

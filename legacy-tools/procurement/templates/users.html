@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AcmeCorp Procurement Portal v1.8.2 — Users</title>
+    <style>
+        body { font-family: Arial, Verdana, sans-serif; background: #f5f0e8; margin: 0; padding: 0; font-size: 12px; }
+        .header { background: #e87511; color: #fff; padding: 10px 20px; border-bottom: 3px solid #c5620e; }
+        .header h1 { margin: 0; font-size: 17px; font-weight: bold; }
+        .subheader { background: #666; color: #fff; padding: 0 20px; border-bottom: 1px solid #444; }
+        .tabs { display: flex; gap: 0; }
+        .tab { padding: 8px 18px; font-size: 12px; color: #ccc; border-right: 1px solid #555; cursor: pointer; text-decoration: none; display: block; }
+        .tab:hover { background: #777; color: #fff; }
+        .tab.active { background: #888; color: #fff; border-bottom: 2px solid #e87511; }
+        .content { padding: 16px 20px; }
+        .page-title { font-size: 14px; font-weight: bold; color: #e87511; margin-bottom: 12px; border-bottom: 2px solid #e0d0b0; padding-bottom: 6px; }
+        .record-info { font-size: 11px; color: #666; margin-bottom: 8px; }
+        table { border-collapse: collapse; width: 100%; background: #fff; border: 1px solid #ccc; }
+        th { background: #e87511; color: #fff; padding: 7px 10px; text-align: left; font-size: 11px; border: 1px solid #c5620e; }
+        td { padding: 6px 10px; border: 1px solid #ccc; font-size: 11px; }
+        tr:nth-child(even) td { background: #fdf5e8; }
+        tr:hover td { background: #ffeedd; }
+        .status-approved { color: #006600; font-weight: bold; }
+        .status-pending { color: #cc6600; font-weight: bold; }
+        .status-rejected { color: #cc0000; font-weight: bold; }
+        .approval-yes { background: #28a745; color: #fff; padding: 2px 8px; font-size: 10px; font-weight: bold; }
+        .approval-no { background: #6c757d; color: #fff; padding: 2px 8px; font-size: 10px; }
+        .action-link { color: #e87511; text-decoration: none; margin-right: 8px; font-size: 11px; font-weight: bold; }
+        .action-link:hover { text-decoration: underline; }
+        .status-active { color: #006600; font-weight: bold; }
+        .status-disabled { color: #cc0000; font-weight: bold; }
+        .footer { background: #666; color: #ccc; text-align: center; padding: 8px; font-size: 10px; margin-top: 20px; border-top: 1px solid #444; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>&#128230; AcmeCorp Procurement Portal</h1>
+    </div>
+    <div class="subheader">
+        <div class="tabs">
+            <a href="/users" class="tab {% if tab == 'users' %}active{% endif %}">Users</a>
+            <a href="/approvers" class="tab {% if tab == 'approvers' %}active{% endif %}">Approvers</a>
+            <a href="#" class="tab">Purchase Orders</a>
+            <a href="/logout" class="tab">Logout</a>
+        </div>
+    </div>
+    <div class="content">
+        <div class="page-title">
+            {% if tab == "approvers" %}Approval Authority Users{% else %}All System Users{% endif %}
+        </div>
+        <div class="record-info">{{ users|length }} record(s) | Last refreshed: {{ now }}</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Full Name</th>
+                    <th>Role</th>
+                    <th>Department</th>
+                    <th>Last Login</th>
+                    <th>Status</th>
+                    <th>Approval Rights</th>
+                    <th>Spending Limit</th>
+                    <th>Workflow Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td><strong>{{ user.username }}</strong></td>
+                    <td>{{ user.full_name }}</td>
+                    <td>{{ user.role }}</td>
+                    <td>{{ user.department }}</td>
+                    <td>{{ user.last_login }}</td>
+                    <td>
+                        {% if user.status == "Active" %}
+                            <span class="status-active">&#10003; Active</span>
+                        {% else %}
+                            <span class="status-disabled">&#10007; Disabled</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.approval_rights %}
+                            <span class="approval-yes">&#10003; Yes</span>
+                        {% else %}
+                            <span class="approval-no">No</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ user.spending_limit }}</td>
+                    <td>
+                        {% if user.approval_status == "Approved" %}
+                            <span class="status-approved">&#10003; Approved</span>
+                        {% elif user.approval_status == "Pending" %}
+                            <span class="status-pending">&#9203; Pending</span>
+                        {% else %}
+                            <span class="status-rejected">&#10007; Rejected</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="/users/{{ user.id }}/edit" class="action-link">Edit</a>
+                        <a href="/users/{{ user.id }}/edit" class="action-link">Disable</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="footer">Procurement Portal v1.8.2 | Build 20140823 | &copy; 2014 AcmeCorp Procurement | All rights reserved</div>
+</body>
+</html>

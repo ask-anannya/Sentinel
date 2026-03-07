@@ -1,0 +1,9 @@
+employee_id,full_name,username,department,role,status
+EMP001,John Smith,jsmith,Engineering,Engineering Manager,ACTIVE
+EMP002,Mary Wilson,mwilson,IT,System Administrator,TERMINATED
+EMP003,David Park,dpark,IT,IT Administrator,ACTIVE
+EMP004,Ana Lopez,alopez,Marketing,Marketing Manager,ACTIVE
+EMP005,Brian Chen,bchen,Engineering,DevOps Engineer,ACTIVE
+EMP006,Lisa Nguyen,lnguyen,Security,Security Engineer,ACTIVE
+EMP007,Robert Thompson,rthompson,Sales,Sales Representative,ACTIVE
+EMP008,Kavya Patel,kpatel,Finance,Finance Manager,ACTIVE

@@ -1,0 +1,72 @@
+{
+  "admin_eligible_roles": [
+    "Engineering Manager",
+    "IT Administrator",
+    "Security Engineer",
+    "DevOps Engineer",
+    "System Administrator",
+    "Network Administrator",
+    "Finance Administrator",
+    "Procurement Manager"
+  ],
+  "never_admin_roles": [
+    "Intern",
+    "Contractor",
+    "Marketing Manager",
+    "Sales Representative",
+    "Finance Manager"
+  ],
+  "inactive_threshold_days": 90,
+  "shared_account_patterns": [
+    "shared",
+    "team",
+    "generic",
+    "group",
+    "finance_",
+    "hr_",
+    "it_",
+    "ops_",
+    "admin_",
+    "_shared",
+    "_team",
+    "_generic"
+  ],
+  "violation_types": {
+    "ACCESS_VIOLATION": {
+      "description": "Terminated employee retains active system access",
+      "severity": "CRITICAL",
+      "severity_score": 95,
+      "soc2_control": "CC6.2",
+      "remediation": "Disable the account immediately"
+    },
+    "INACTIVE_ADMIN": {
+      "description": "Administrator account has not logged in beyond the inactive threshold",
+      "severity": "HIGH",
+      "severity_score": 75,
+      "soc2_control": "CC6.1",
+      "remediation": "Deactivate or remove admin privileges"
+    },
+    "SHARED_ACCOUNT": {
+      "description": "Shared or generic account with elevated privileges violates individual accountability",
+      "severity": "HIGH",
+      "severity_score": 80,
+      "soc2_control": "CC6.3",
+      "remediation": "Flag for manual review — requires human decision"
+    },
+    "PERMISSION_CREEP": {
+      "description": "User has elevated privileges not appropriate for their role",
+      "severity": "MEDIUM",
+      "severity_score": 55,
+      "soc2_control": "CC6.3",
+      "remediation": "Revoke admin/elevated privileges"
+    }
+  },
+  "compliance_score": {
+    "base_score": 100,
+    "deductions": {
+      "CRITICAL": 15,
+      "HIGH": 8,
+      "MEDIUM": 4
+    }
+  }
+}

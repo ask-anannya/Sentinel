@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AcmeCorp Procurement Portal v1.8.2 — Login</title>
+    <style>
+        body { font-family: Arial, Verdana, sans-serif; background: #f5f0e8; margin: 0; padding: 0; font-size: 12px; }
+        .header { background: #e87511; color: #fff; padding: 10px 20px; border-bottom: 3px solid #c5620e; }
+        .header h1 { margin: 0; font-size: 17px; font-weight: bold; }
+        .header .subtitle { font-size: 10px; color: #ffe0b2; margin-top: 2px; }
+        .subheader { background: #666; color: #fff; padding: 5px 20px; border-bottom: 1px solid #444; }
+        .tabs { display: flex; gap: 0; }
+        .tab { padding: 5px 18px; font-size: 12px; color: #ccc; border-right: 1px solid #555; cursor: pointer; }
+        .tab.active { background: #888; color: #fff; }
+        .content { max-width: 460px; margin: 50px auto; padding: 0 20px; }
+        .login-box { background: #fff; border: 1px solid #ccc; border-top: 3px solid #e87511; padding: 24px; }
+        .login-box h2 { margin: 0 0 16px 0; font-size: 13px; color: #e87511; border-bottom: 1px solid #e0d0b0; padding-bottom: 8px; font-weight: bold; }
+        .warning { background: #fff3e0; border: 1px solid #e87511; padding: 8px 12px; margin-bottom: 16px; font-size: 11px; color: #7f3b00; }
+        .field-row { margin-bottom: 12px; }
+        label { display: block; font-size: 11px; font-weight: bold; color: #555; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; font-size: 12px; background: #fafafa; }
+        input[type="text"]:focus, input[type="password"]:focus { border-color: #e87511; outline: none; background: #fff; }
+        input[type="submit"] { background: #e87511; color: #fff; border: none; padding: 8px 0; font-size: 13px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        input[type="submit"]:hover { background: #c5620e; }
+        .error { background: #fde8e8; border: 1px solid #e74c3c; color: #721c24; padding: 6px 10px; font-size: 11px; margin-bottom: 12px; }
+        .footer { background: #666; color: #ccc; text-align: center; padding: 8px; font-size: 10px; margin-top: 40px; border-top: 1px solid #444; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>&#128230; AcmeCorp Procurement Portal</h1>
+        <div class="subtitle">Supplier Relationship Management System v1.8.2 | Finance &amp; Procurement Division</div>
+    </div>
+    <div class="subheader">
+        <div class="tabs">
+            <div class="tab active">Users</div>
+            <div class="tab">Approvers</div>
+            <div class="tab">Purchase Orders</div>
+            <div class="tab">Settings</div>
+        </div>
+    </div>
+    <div class="content">
+        <div class="login-box">
+            <h2>&#128274; User Authentication</h2>
+            <div class="warning">
+                &#9888; IT Department &mdash; Authorized Users Only<br>
+                This system contains confidential financial data. Unauthorized access is prohibited.
+            </div>
+            {% if error %}
+            <div class="error">&#10060; {{ error }}</div>
+            {% endif %}
+            <form method="POST">
+                <div class="field-row">
+                    <label for="username">Username:</label>
+                    <input type="text" id="username" name="username" autocomplete="off">
+                </div>
+                <div class="field-row">
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password">
+                </div>
+                <input type="submit" value="Login">
+            </form>
+        </div>
+    </div>
+    <div class="footer">Procurement Portal v1.8.2 | Build 20140823 | &copy; 2014 AcmeCorp Procurement | All rights reserved</div>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AcmeCorp HRMS v3.1 — User Management</title>
+    <style>
+        body { font-family: Arial, Verdana, sans-serif; background: #c0c0c0; margin: 0; padding: 0; font-size: 12px; }
+        .header { background: #e0e0e0; border-bottom: 2px solid #999; padding: 8px 16px; }
+        .header h1 { margin: 0; font-size: 18px; color: #333; font-weight: bold; }
+        .header .subtitle { font-size: 10px; color: #666; }
+        .navbar { background: #336699; padding: 6px 16px; }
+        .navbar a { color: #fff; text-decoration: none; margin-right: 20px; font-size: 12px; font-weight: bold; }
+        .navbar a:hover { text-decoration: underline; }
+        .breadcrumb { background: #f0f0f0; border-bottom: 1px solid #ccc; padding: 4px 16px; font-size: 11px; color: #666; }
+        .breadcrumb a { color: #336699; text-decoration: none; }
+        .content { padding: 16px; }
+        .page-title { font-size: 14px; font-weight: bold; color: #336699; margin-bottom: 12px; border-bottom: 1px solid #999; padding-bottom: 6px; }
+        .record-count { font-size: 11px; color: #666; margin-bottom: 8px; }
+        table { border-collapse: collapse; width: 100%; background: #fff; }
+        th { background: #336699; color: #fff; padding: 6px 8px; text-align: left; font-size: 11px; font-weight: bold; border: 1px solid #1a4d80; }
+        td { padding: 5px 8px; border: 1px solid #999; font-size: 11px; vertical-align: middle; }
+        tr:nth-child(even) td { background: #f2f2f2; }
+        tr:hover td { background: #ddeeff; }
+        .status-active { color: #006600; font-weight: bold; }
+        .status-inactive { color: #cc6600; font-weight: bold; }
+        .status-disabled { color: #cc0000; font-weight: bold; }
+        .admin-badge { background: #336699; color: #fff; padding: 1px 5px; font-size: 10px; }
+        .action-link { color: #336699; text-decoration: none; margin-right: 6px; font-size: 11px; }
+        .action-link:hover { text-decoration: underline; }
+        .footer { background: #e0e0e0; border-top: 1px solid #999; text-align: center; padding: 6px; font-size: 10px; color: #666; margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>AcmeCorp HRMS v3.1</h1>
+        <div class="subtitle">Human Capital Management System</div>
+    </div>
+    <div class="navbar">
+        <a href="/users">Home</a>
+        <a href="/users">Users</a>
+        <a href="/admin-users">Admin Users</a>
+        <a href="/logout">Logout</a>
+    </div>
+    <div class="breadcrumb">
+        <a href="/users">Home</a> &gt; Administration &gt; User Management &gt;
+        {% if page == "admin-users" %}Admin Users{% else %}Active Users{% endif %}
+    </div>
+    <div class="content">
+        <div class="page-title">
+            {% if page == "admin-users" %}Administrator User Accounts{% else %}Active User Accounts{% endif %}
+        </div>
+        <div class="record-count">{{ users|length }} record(s) found | As of: {{ now }}</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Full Name</th>
+                    <th>Role</th>
+                    <th>Department</th>
+                    <th>Last Login</th>
+                    <th>Account Status</th>
+                    <th>Admin Access</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td><strong>{{ user.username }}</strong></td>
+                    <td>{{ user.full_name }}</td>
+                    <td>{{ user.role }}</td>
+                    <td>{{ user.department }}</td>
+                    <td>{{ user.last_login }}</td>
+                    <td>
+                        {% if user.status == "Active" %}
+                            <span class="status-active">&#9679; Active</span>
+                        {% elif user.status == "Inactive" %}
+                            <span class="status-inactive">&#9679; Inactive</span>
+                        {% else %}
+                            <span class="status-disabled">&#9679; Disabled</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.is_admin %}
+                            <span class="admin-badge">ADMIN</span>
+                        {% else %}
+                            &mdash;
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="/users/{{ user.id }}/edit" class="action-link">Edit</a>
+                        <a href="/users/{{ user.id }}/edit" class="action-link">Disable</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="footer">AcmeCorp HRMS v3.1.4 | Build 20130915 | &copy; 2013 AcmeCorp Internal Systems | All rights reserved</div>
+</body>
+</html>

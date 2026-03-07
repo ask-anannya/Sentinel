@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AcmeCorp HRMS v3.1 — Edit User</title>
+    <style>
+        body { font-family: Arial, Verdana, sans-serif; background: #c0c0c0; margin: 0; padding: 0; font-size: 12px; }
+        .header { background: #e0e0e0; border-bottom: 2px solid #999; padding: 8px 16px; }
+        .header h1 { margin: 0; font-size: 18px; color: #333; font-weight: bold; }
+        .navbar { background: #336699; padding: 6px 16px; }
+        .navbar a { color: #fff; text-decoration: none; margin-right: 20px; font-size: 12px; font-weight: bold; }
+        .breadcrumb { background: #f0f0f0; border-bottom: 1px solid #ccc; padding: 4px 16px; font-size: 11px; color: #666; }
+        .breadcrumb a { color: #336699; text-decoration: none; }
+        .content { padding: 16px; max-width: 600px; }
+        .page-title { font-size: 14px; font-weight: bold; color: #336699; margin-bottom: 12px; border-bottom: 1px solid #999; padding-bottom: 6px; }
+        .form-section { background: #fff; border: 1px solid #999; padding: 16px; margin-bottom: 16px; }
+        .form-section h3 { margin: 0 0 12px 0; font-size: 12px; color: #336699; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+        .form-row { margin-bottom: 10px; }
+        label { display: block; font-size: 11px; font-weight: bold; color: #333; margin-bottom: 3px; }
+        input[type="text"], select { width: 300px; padding: 4px; border: 1px solid #999; font-size: 12px; font-family: Arial; }
+        input[type="checkbox"] { margin-right: 6px; }
+        .btn { padding: 5px 16px; font-size: 12px; cursor: pointer; border: 1px solid; font-weight: bold; margin-right: 8px; }
+        .btn-save { background: #336699; color: #fff; border-color: #1a4d80; }
+        .btn-disable { background: #cc0000; color: #fff; border-color: #990000; }
+        .btn-deactivate { background: #cc6600; color: #fff; border-color: #994d00; }
+        .btn-cancel { background: #f0f0f0; color: #333; border-color: #999; }
+        .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 8px 12px; margin-bottom: 12px; font-size: 11px; }
+        .field-value { font-size: 12px; color: #333; padding: 4px 0; }
+        .footer { background: #e0e0e0; border-top: 1px solid #999; text-align: center; padding: 6px; font-size: 10px; color: #666; margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>AcmeCorp HRMS v3.1</h1>
+    </div>
+    <div class="navbar">
+        <a href="/users">Home</a>
+        <a href="/users">Users</a>
+        <a href="/admin-users">Admin Users</a>
+        <a href="/logout">Logout</a>
+    </div>
+    <div class="breadcrumb">
+        <a href="/users">Home</a> &gt; <a href="/users">User Management</a> &gt; Edit User
+    </div>
+    <div class="content">
+        <div class="page-title">Edit User Account: {{ user.username }}</div>
+        {% if message %}
+        <div class="success">{{ message }}</div>
+        {% endif %}
+        <div class="form-section">
+            <h3>Account Information</h3>
+            <div class="form-row">
+                <label>Username:</label>
+                <div class="field-value">{{ user.username }}</div>
+            </div>
+            <div class="form-row">
+                <label>Full Name:</label>
+                <div class="field-value">{{ user.full_name }}</div>
+            </div>
+            <div class="form-row">
+                <label>Department:</label>
+                <div class="field-value">{{ user.department }}</div>
+            </div>
+            <div class="form-row">
+                <label>Current Status:</label>
+                <div class="field-value"><strong>{{ user.status }}</strong></div>
+            </div>
+        </div>
+        <div class="form-section">
+            <h3>Modify Account</h3>
+            <form method="POST">
+                <div class="form-row">
+                    <label for="role">Role:</label>
+                    <select name="role" id="role">
+                        <option value="Engineering Manager" {% if user.role == 'Engineering Manager' %}selected{% endif %}>Engineering Manager</option>
+                        <option value="IT Administrator" {% if user.role == 'IT Administrator' %}selected{% endif %}>IT Administrator</option>
+                        <option value="Security Engineer" {% if user.role == 'Security Engineer' %}selected{% endif %}>Security Engineer</option>
+                        <option value="DevOps Engineer" {% if user.role == 'DevOps Engineer' %}selected{% endif %}>DevOps Engineer</option>
+                        <option value="System Administrator" {% if user.role == 'System Administrator' %}selected{% endif %}>System Administrator</option>
+                        <option value="Finance Manager" {% if user.role == 'Finance Manager' %}selected{% endif %}>Finance Manager</option>
+                        <option value="Marketing Manager" {% if user.role == 'Marketing Manager' %}selected{% endif %}>Marketing Manager</option>
+                        <option value="Sales Representative" {% if user.role == 'Sales Representative' %}selected{% endif %}>Sales Representative</option>
+                        <option value="Intern" {% if user.role == 'Intern' %}selected{% endif %}>Intern</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>
+                        <input type="checkbox" name="is_admin" {% if user.is_admin %}checked{% endif %}>
+                        Administrator Access
+                    </label>
+                </div>
+                <button type="submit" name="action" value="save" class="btn btn-save">Save Changes</button>
+                <button type="submit" name="action" value="disable" class="btn btn-disable" onclick="return confirm('Disable this account?')">Disable Account</button>
+                <button type="submit" name="action" value="deactivate" class="btn btn-deactivate" onclick="return confirm('Deactivate this account?')">Deactivate Account</button>
+                <a href="/users"><button type="button" class="btn btn-cancel">Cancel</button></a>
+            </form>
+        </div>
+    </div>
+    <div class="footer">AcmeCorp HRMS v3.1.4 | Build 20130915 | &copy; 2013 AcmeCorp Internal Systems</div>
+</body>
+</html>
