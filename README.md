@@ -248,7 +248,3 @@ After deploying, update `.env` with the public Railway URLs for `HRMS_URL`, `ITA
 | **Deployment** | Railway |
 
 ---
-
-## License
-
-This project is part of an Amazon Nova Act demonstration. See the root [LICENSE](../nova-act/LICENSE) for the Nova Act SDK license terms.
