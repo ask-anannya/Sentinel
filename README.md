@@ -29,8 +29,7 @@ Sentinel is an autonomous compliance monitoring platform that:
 
 ---
 
-## Architecture
-
+## Architecture- Please find the detailed architecture in ARCHITECTURE.md
 ```
 sentinel/
 ├── backend/                 # FastAPI + Python
