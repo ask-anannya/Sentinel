@@ -1,0 +1,156 @@
+# Copyright 2025 Amazon Inc
+
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+import logging
+import os
+import sys
+from contextvars import ContextVar
+from dataclasses import dataclass
+from enum import Enum
+from typing import Callable
+
+
+class SessionState(Enum):
+    UNKNOWN = " "
+    OBSERVING = "👀 "
+    THINKING = "💭 "
+    ACTING = "🎬 "
+
+
+@dataclass
+class SessionContext:
+    id: str
+    state: SessionState
+
+    def trace_prefix(self, *, with_state_emoji: bool = False) -> str:
+        return f"{self.id[-4:]}> {self.state.value if with_state_emoji else ''}"
+
+
+_session_context = ContextVar[SessionContext | None]("session_context", default=None)
+
+
+def get_session_context() -> SessionContext | None:
+    return _session_context.get()
+
+
+def get_session_id_prefix() -> str:
+    session_context = _session_context.get()
+    if session_context is None:
+        return ""
+    return session_context.trace_prefix()
+
+
+def get_session_id() -> str:
+    session_context = _session_context.get()
+    if session_context is None:
+        return ""
+    return session_context.id
+
+
+def set_logging_session(session_id: str | None) -> None:
+    if session_id is None:
+        _session_context.set(None)
+    else:
+        _session_context.set(SessionContext(id=session_id, state=SessionState.UNKNOWN))
+
+
+def set_logging_session_state(state: SessionState) -> None:
+    session_context = _session_context.get()
+    if session_context is not None:
+        session_context.state = state
+
+
+_LOG_ENV_VAR = "NOVA_ACT_LOG_LEVEL"
+
+
+def get_log_level() -> int:
+    return int(os.environ.get(_LOG_ENV_VAR, logging.INFO))
+
+
+def setup_logging(module_name: str) -> logging.Logger:
+    logger = logging.getLogger(module_name)
+
+    # Add a handler only if it hasn't been already set up.
+    if not logger.hasHandlers() and not logging.root.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.setLevel(get_log_level())
+        logger.propagate = False
+
+    return logger
+
+
+_trace_logger: logging.Logger | None = None
+
+
+def make_trace_logger() -> logging.Logger:
+    global _trace_logger
+    if _trace_logger is None:
+        _trace_logger = logging.getLogger("nova_act.trace")
+        _trace_logger.setLevel(get_log_level())
+        if not _trace_logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter("%(message)s")
+            handler.setFormatter(formatter)
+            _trace_logger.addHandler(handler)
+        _trace_logger.propagate = False
+    return _trace_logger
+
+
+def trace_log_lines(message: str, level: int = logging.INFO) -> None:
+    """Trace log a multi-line statement to the terminal."""
+    lines = message.split("\n")
+    for line in lines:
+        make_trace_logger().log(level, f"{get_session_id_prefix()}{line}")
+
+
+class LoadScroller:
+    """Print horizontal dots until stop condition"""
+
+    def __init__(self, condition_check: Callable[[], bool] = lambda: True, frequency: int = 1):
+        if frequency < 1:
+            raise ValueError("Frequency must be greater than 1")
+
+        self.condition_check = condition_check
+        self.toggled = False
+        self._frequency = frequency
+        self._count = 0
+
+    def scroll(self) -> None:
+        if not self.condition_check():
+            return
+
+        self._count += 1
+        if self._count >= self._frequency:
+            self._count = 0
+            print(".", end="", flush=True, file=sys.stderr)
+
+
+def create_warning_box(messages: list[str]) -> str:
+    # Find the longest line to determine box width
+    max_length = max(len(line) for line in messages)
+    width = max_length + 4  # 4 accounts for spaces and stars on sides
+
+    # Create box parts
+    border = "*" * width
+    middle_lines = []
+    for msg in messages:
+        padding = " " * (width - len(msg) - 4)
+        middle_lines.append(f"* {msg}{padding} *")
+
+    # Combine all parts
+    return f"\n{border}\n{chr(10).join(middle_lines)}\n{border}"
+
+
