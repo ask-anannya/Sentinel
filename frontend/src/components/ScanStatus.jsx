@@ -1,12 +1,15 @@
-import { useEffect, useRef } from 'react'
-import { CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import axios from 'axios'
+import AgentActivityFeed from './AgentActivityFeed.jsx'
 
 export default function ScanStatus({ scanId, onComplete }) {
+  const [useFallback, setUseFallback] = useState(false)
   const intervalRef = useRef(null)
 
+  // Polling fallback — only activates if SSE connection fails
   useEffect(() => {
-    if (!scanId) return
+    if (!scanId || !useFallback) return
 
     const poll = async () => {
       try {
@@ -23,10 +26,22 @@ export default function ScanStatus({ scanId, onComplete }) {
     poll()
     intervalRef.current = setInterval(poll, 3000)
     return () => clearInterval(intervalRef.current)
-  }, [scanId])
+  }, [scanId, useFallback])
 
   if (!scanId) return null
 
+  // SSE feed — if it signals an error, switch to polling fallback
+  if (!useFallback) {
+    return (
+      <AgentActivityFeed
+        scanId={scanId}
+        onComplete={onComplete}
+        onError={() => setUseFallback(true)}
+      />
+    )
+  }
+
+  // Polling fallback UI (original spinner)
   return (
     <div className="mt-4 p-4 bg-slate-800 border border-slate-700 rounded-lg">
       <div className="flex items-center gap-3">
@@ -47,7 +62,7 @@ export default function ScanStatus({ scanId, onComplete }) {
         ))}
       </div>
       <div className="mt-3 h-1 bg-slate-700 rounded-full overflow-hidden">
-        <div className="h-full bg-blue-500 rounded-full animate-[scan_2s_ease-in-out_infinite]"
+        <div className="h-full bg-blue-500 rounded-full"
           style={{ width: '60%', animation: 'pulse 1.5s ease-in-out infinite' }} />
       </div>
     </div>

@@ -83,6 +83,7 @@ def _take_screenshot(nova: NovaAct, prefix: str) -> str | None:
 def execute_remediation(
     violation: dict[str, Any],
     approved_by: str,
+    event_callback=None,
 ) -> dict[str, Any]:
     """
     Execute an approved remediation for a violation.
@@ -102,6 +103,22 @@ def execute_remediation(
         tool_name,
         username,
     )
+
+    def _emit(step: int, message: str, status: str, screenshot: str | None = None) -> None:
+        if event_callback:
+            event_callback(step, message, status, screenshot=screenshot)
+
+    # Violation-type-specific action messages
+    _ACTION_RUNNING = {
+        "ACCESS_VIOLATION": "Disabling account...",
+        "INACTIVE_ADMIN": "Deactivating account...",
+        "PERMISSION_CREEP": "Revoking admin access...",
+    }
+    _ACTION_DONE = {
+        "ACCESS_VIOLATION": "Account disabled",
+        "INACTIVE_ADMIN": "Account deactivated",
+        "PERMISSION_CREEP": "Admin access revoked",
+    }
 
     # --- Shared accounts: manual review only ---
     if violation_type == "SHARED_ACCOUNT":
@@ -156,6 +173,7 @@ def execute_remediation(
 
     screenshot_path: str | None = None
     try:
+        _emit(0, f"Navigating to {tool_name} login...", "running")
         with Workflow(
             model_id="nova-act-latest",
             workflow_definition_name=workflow_name,
@@ -174,6 +192,10 @@ def execute_remediation(
                 nova.page.keyboard.type(tool_config["password"])
                 nova.act("Click the submit button inside the login form to log in (it may say 'Sign In', 'Login', or 'Authenticate')")
 
+                # Screenshot: post-login state
+                shot_login = _take_screenshot(nova, f"{tool_name}_{username}_login")
+                _emit(1, f"Logged into {tool_name}", "success", screenshot=shot_login)
+
                 # Auto-accept native browser confirm() dialogs.
                 # All three legacy portals use onclick="return confirm(...)" on
                 # their disable/deactivate/revoke buttons. Nova Act cannot see
@@ -181,13 +203,28 @@ def execute_remediation(
                 # Playwright dialog event before the agent clicks the button.
                 nova.page.on("dialog", lambda dialog: dialog.accept())
 
+                # Navigate to user
+                nova.act(
+                    "Navigate to the user management page or click on Users in the navigation menu"
+                )
+
+                # Screenshot: user row visible
+                shot_user = _take_screenshot(nova, f"{tool_name}_{username}_user")
+                _emit(2, f"Located user: {username}", "success", screenshot=shot_user)
+
                 # Execute remediation
+                _emit(3, _ACTION_RUNNING.get(violation_type, "Executing action..."), "running")
                 nova.act(instructions)
 
-                # Capture confirmation screenshot
+                # Screenshot: confirmation state after action
+                shot_done = _take_screenshot(nova, f"{tool_name}_{username}_done")
+                _emit(3, _ACTION_DONE.get(violation_type, "Action complete"), "success", screenshot=shot_done)
+
+                # Final audit screenshot (stored in DB)
                 screenshot_path = _take_screenshot(
                     nova, f"{tool_name}_{username}_{violation_type.lower()}"
                 )
+                _emit(4, "Confirmation screenshot captured", "success", screenshot=screenshot_path)
 
         resolved_at = datetime.now().isoformat()
         database.update_violation_status(
@@ -212,6 +249,7 @@ def execute_remediation(
                 "details": instructions,
             }
         )
+        _emit(5, "Audit trail updated", "success")
 
         logger.info(
             "Remediation successful for violation %s. Screenshot: %s",
@@ -229,6 +267,7 @@ def execute_remediation(
         logger.error(
             "Remediation failed for violation %s: %s", violation_id, exc, exc_info=True
         )
+        _emit(-1, f"Error: {exc}", "error")
         failed_at = datetime.now().isoformat()
         database.insert_audit_entry(
             {

@@ -9,12 +9,20 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      '/api': process.env.VITE_API_URL || 'http://localhost:8000',
+      '/api': {
+        target: process.env.VITE_API_URL || 'http://localhost:8000',
+        ws: true,        // forward WebSocket connections (/api/voice-session)
+        changeOrigin: true,
+      },
     },
   },
   preview: {
     proxy: {
-      '/api': process.env.VITE_API_URL || 'http://localhost:8000',
+      '/api': {
+        target: process.env.VITE_API_URL || 'http://localhost:8000',
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
 })

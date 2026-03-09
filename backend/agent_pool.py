@@ -95,20 +95,21 @@ SCREENSHOTS_DIR = os.path.join(os.path.dirname(__file__), "screenshots")
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 
 
-def _save_screenshot(nova: NovaAct, tool_name: str) -> str | None:
-    """Take a screenshot via Playwright and save it. Returns relative path."""
+def _save_screenshot(nova: NovaAct, tool_name: str, step: str = "") -> str | None:
+    """Take a screenshot via Playwright and save it. Returns filename."""
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{tool_name}_{timestamp}.png"
+        label = f"_{step}" if step else ""
+        filename = f"{tool_name}{label}_{timestamp}.png"
         filepath = os.path.join(SCREENSHOTS_DIR, filename)
         nova.page.screenshot(path=filepath)
         return filename
     except Exception as exc:
-        logger.warning("Screenshot failed for %s: %s", tool_name, exc)
+        logger.warning("Screenshot failed for %s/%s: %s", tool_name, step, exc)
         return None
 
 
-def scan_tool(tool_config: dict[str, str], workflow: Workflow) -> dict[str, Any]:
+def scan_tool(tool_config: dict[str, str], workflow: Workflow, event_callback=None) -> dict[str, Any]:
     """
     Scan a single legacy tool using Nova Act.
     Returns extracted user data and screenshot path.
@@ -116,13 +117,22 @@ def scan_tool(tool_config: dict[str, str], workflow: Workflow) -> dict[str, Any]
     tool_name = tool_config["name"]
     logger.info("Starting scan for tool: %s", tool_name)
 
+    def _emit(message: str, status: str, screenshot: str | None = None) -> None:
+        if event_callback:
+            event_callback(tool_name, message, status, screenshot=screenshot)
+
     try:
+        _emit("Navigating to login page...", "running")
         with NovaAct(
             starting_page=tool_config["url"] + "/login",
             headless=True,
             workflow=workflow,
             ignore_https_errors=True,
         ) as nova:
+            # Screenshot: login page loaded
+            shot = _save_screenshot(nova, tool_name, "login")
+            _emit("Login page loaded", "running", screenshot=shot)
+
             # --- Login using SDK's secure credential pattern ---
             nova.act("Click on the username input field")
             nova.page.keyboard.type(tool_config["username"])
@@ -130,12 +140,22 @@ def scan_tool(tool_config: dict[str, str], workflow: Workflow) -> dict[str, Any]
             nova.act("Click on the password input field")
             nova.page.keyboard.type(tool_config["password"])
 
+            _emit("Entering credentials...", "running")
             nova.act("Click the submit button inside the login form to log in (it may say 'Sign In', 'Login', or 'Authenticate')")
 
+            # Screenshot: post-login dashboard
+            shot = _save_screenshot(nova, tool_name, "loggedin")
+            _emit("Login successful", "success", screenshot=shot)
+
             # --- Navigate to user list ---
+            _emit("Navigating to user management...", "running")
             nova.act(
                 "Navigate to the user management page or click on Users in the navigation menu"
             )
+
+            # Screenshot: user management page
+            shot = _save_screenshot(nova, tool_name, "users")
+            _emit("User management page loaded", "running", screenshot=shot)
 
             # --- Structured data extraction ---
             result = nova.act_get(
@@ -150,15 +170,21 @@ def scan_tool(tool_config: dict[str, str], workflow: Workflow) -> dict[str, Any]
                 logger.info(
                     "Extracted %d users from %s", len(users), tool_name
                 )
+                # Screenshot: extracted user table view
+                shot = _save_screenshot(nova, tool_name, "extracted")
+                _emit(f"Found {len(users)} users", "success", screenshot=shot)
             else:
                 logger.warning(
                     "Extraction did not match schema for %s. Raw: %s",
                     tool_name,
                     result.response,
                 )
+                shot = _save_screenshot(nova, tool_name, "extracted")
+                _emit("Extraction schema mismatch — partial data", "running", screenshot=shot)
 
-            # --- Screenshot for audit evidence ---
-            screenshot_path = _save_screenshot(nova, tool_name)
+            # Final audit screenshot (stored in DB)
+            screenshot_path = _save_screenshot(nova, tool_name, "audit")
+            _emit("Extraction complete \u2713", "success")
 
             return {
                 "tool": tool_name,
@@ -170,6 +196,7 @@ def scan_tool(tool_config: dict[str, str], workflow: Workflow) -> dict[str, Any]
 
     except Exception as exc:
         logger.error("Scan failed for tool %s: %s", tool_name, exc, exc_info=True)
+        _emit(f"Error: {exc}", "error")
         return {
             "tool": tool_name,
             "users": [],
@@ -179,7 +206,7 @@ def scan_tool(tool_config: dict[str, str], workflow: Workflow) -> dict[str, Any]
         }
 
 
-def scan_all_tools() -> list[dict[str, Any]]:
+def scan_all_tools(event_callback=None) -> list[dict[str, Any]]:
     """
     Scan all three legacy tools in parallel using a shared Workflow context.
     Returns combined results list.
@@ -201,7 +228,7 @@ def scan_all_tools() -> list[dict[str, Any]]:
     ) as workflow:
         with ThreadPoolExecutor(max_workers=len(configs)) as executor:
             future_to_config = {
-                executor.submit(scan_tool, config, workflow): config
+                executor.submit(scan_tool, config, workflow, event_callback): config
                 for config in configs
             }
             for future in as_completed(future_to_config):
