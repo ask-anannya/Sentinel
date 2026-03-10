@@ -10,7 +10,8 @@ cmds = [
 
 [phases.build]
 cmds = [
-  "npm --prefix frontend run build -- --outDir ../backend/dist"
+  "npm --prefix frontend run build -- --outDir ../backend/dist",
+  "/opt/venv/bin/python -m playwright install --with-deps chromium"
 ]
 
 [start]
