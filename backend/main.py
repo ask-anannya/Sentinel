@@ -660,3 +660,21 @@ async def get_scan_briefing_audio(scan_id: str) -> StreamingResponse:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "sentinel-backend"}
+
+
+# ---------------------------------------------------------------------------
+# Serve React frontend (production build)
+# Must be registered last so all /api/* routes take priority.
+# ---------------------------------------------------------------------------
+
+FRONTEND_DIST = Path(__file__).parent / "dist"
+
+if FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str) -> FileResponse:
+        file = FRONTEND_DIST / full_path
+        if file.is_file():
+            return FileResponse(str(file))
+        return FileResponse(str(FRONTEND_DIST / "index.html"))

@@ -1,7 +1,6 @@
-# Root-level Railway config — points to the backend service.
-# If you deploy the frontend separately, set its Root Directory to "frontend/" in Railway UI.
 [build]
 builder = "nixpacks"
 
 [deploy]
-startCommand = "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
