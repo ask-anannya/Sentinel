@@ -83,7 +83,8 @@ const VoiceAssistant = memo(function VoiceAssistant({ audioCtx, micStream, onAct
 
   // Connect WebSocket
   useEffect(() => {
-    const ws = new WebSocket(`ws://${window.location.host}/api/voice-session`)
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/voice-session`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
