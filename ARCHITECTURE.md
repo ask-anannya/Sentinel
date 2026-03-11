@@ -15,9 +15,10 @@ graph TB
         ViolationsPage["Violations.jsx"]
         AuditTrailPage["AuditTrail.jsx"]
         CompScore["ComplianceScore.jsx"]
-        VCard["ViolationCard.jsx"]
+        VCard["ViolationCard.jsx (+ SOC2 tooltips)"]
         RModal["RemediationModal.jsx"]
         ScanStat["ScanStatus.jsx"]
+        STC["ScoreTrendChart.jsx"]
         VA["VoiceAssistant.jsx"]
         AB["AudioBriefing.jsx"]
         Splash["SentinelSplash.jsx"]
@@ -26,7 +27,7 @@ graph TB
 
     subgraph Backend["Backend — FastAPI + Python"]
         direction TB
-        API["main.py — FastAPI Routes + WebSocket"]
+        API["main.py — FastAPI Routes + WebSocket + PDF builder + SESSION_START"]
         Orch["orchestrator.py — Scan Orchestration"]
         AP["agent_pool.py — Nova Act Agent Pool"]
         VE["violation_engine.py — Violation Detection"]
@@ -58,13 +59,14 @@ graph TB
     Browser -->|"WebSocket (PCM audio)"| API
     App --> Dashboard & ViolationsPage & AuditTrailPage
     App -->|"persists across navigation"| VA
-    Dashboard --> CompScore & ScanStat & AB & Splash & AAF
+    Dashboard --> CompScore & ScanStat & STC & AB & Splash & AAF
     ViolationsPage --> VCard & RModal
 
     API -->|"POST /api/scan/trigger"| Orch
     API -->|"POST /api/violations/:id/approve"| RE
     API -->|"GET /api/compliance-score"| VE
-    API -->|"GET /api/reports/export"| NC
+    API -->|"GET /api/compliance-score/history"| DB
+    API -->|"GET /api/reports/export (structured SOC2 PDF)"| NC
     API -->|"WS /api/voice-session"| VAS
     API -->|"CRUD operations"| DB
     API -->|"publishes scan events"| EB
@@ -318,9 +320,10 @@ graph LR
 | `GET` | `/api/violations/{id}` | `get_violation()` | Single violation detail |
 | `POST` | `/api/violations/{id}/approve` | `approve_remediation()` | Trigger Nova Act remediation |
 | `POST` | `/api/violations/{id}/dismiss` | `dismiss_violation()` | Dismiss with reason |
-| `GET` | `/api/audit-trail` | `get_audit_trail()` | Full event history |
+| `GET` | `/api/audit-trail` | `get_audit_trail()` | Audit history scoped to current session (since `SESSION_START`) |
 | `GET` | `/api/compliance-score` | `get_compliance_score()` | Score + severity breakdown |
-| `GET` | `/api/reports/export` | `export_report()` | PDF download via Nova 2 Lite |
+| `GET` | `/api/compliance-score/history` | `get_score_history()` | Score trend data points for current session |
+| `GET` | `/api/reports/export` | `export_report()` | Structured SOC2 PDF (6-section, current scan data only) |
 | `WS` | `/api/voice-session` | `voice_session()` | Nova 2 Sonic bidirectional voice stream |
 | `GET` | `/health` | `health()` | Health check |
 
@@ -373,10 +376,67 @@ erDiagram
         text details
     }
 
+    SCORE_HISTORY {
+        int id PK
+        text timestamp
+        int score
+        text event
+    }
+
     SCANS ||--o{ VIOLATIONS : "produces"
     SCANS ||--o{ AUDIT_TRAIL : "logs"
     VIOLATIONS ||--o{ AUDIT_TRAIL : "tracks"
 ```
+
+> `SCORE_HISTORY` is cleared on every backend startup (`clear_score_history()` in the FastAPI `startup` event). Rows are inserted at scan start (score=100), after violation detection, and after each successful remediation.
+
+---
+
+## PDF Report Generation
+
+The PDF export (`GET /api/reports/export`) produces a structured **SOC2 compliance document** built entirely in Python using **fpdf2**. Nova 2 Lite is used only for two focused prose generation calls; all document structure is hardcoded.
+
+```
+export_report()
+├── get_latest_scan()                   → scope everything to current scan_id
+├── get_violations(scan_id=scan_id)     → current scan violations only
+├── get_audit_trail(since=SESSION_START)→ current session audit entries only
+├── calculate_compliance_score(scan_id) → current scan score
+│
+├── nova_client.generate_executive_summary(audit_data)  → paragraph prose
+├── nova_client.generate_recommendations(audit_data)    → JSON list → parsed
+│
+└── _build_soc2_pdf(audit_data, executive_summary, recommendations)
+    ├── _SOC2PDF(FPDF)   header/footer subclass (auto page numbering, CONFIDENTIAL stamp)
+    ├── Cover page        logo, title, date, scan metadata
+    ├── Section 1         Executive Summary (LLM prose)
+    ├── Section 2         Scope & Methodology (hardcoded)
+    ├── Section 3         Violations Detected (per-violation + screenshots + detection narrative)
+    ├── Section 4 (new page) Compliance Score Analysis (deduction table + score narrative)
+    ├── Section 5 (new page) Remediation Summary (resolved violations + Nova Act steps)
+    └── Section 6         Recommendations (LLM-generated, bulleted)
+```
+
+**Key implementation notes:**
+- `_sanitize(text)` — strips/replaces Unicode characters unsupported by fpdf2's core Helvetica font (Latin-1 only): em dashes → `--`, smart quotes → `'`/`"`, etc.
+- `_format_detection_method(violation_type)` — maps violation type to a "How Sentinel detected this" narrative.
+- `embed_image()` helper calls `pdf.set_y(pdf.t_margin)` after `pdf.add_page()` to prevent screenshots overlapping the header bar.
+
+---
+
+## Session Isolation Design
+
+Sentinel isolates data to the current backend session to prevent stale data bleeding into dashboards and reports:
+
+| Data | Isolation Mechanism |
+|------|---------------------|
+| Audit trail (UI) | `GET /api/audit-trail` filters by `since=SESSION_START` |
+| Audit trail (PDF) | `get_audit_trail(since=SESSION_START)` in `export_report()` |
+| Violations (PDF) | `get_violations(scan_id=latest_scan["scan_id"])` |
+| Compliance score (PDF) | `calculate_compliance_score(scan_id=latest_scan["scan_id"])` |
+| Score trend chart | `SCORE_HISTORY` table cleared via `clear_score_history()` on startup |
+
+`SESSION_START` is a module-level `datetime.now().isoformat()` set when `main.py` is first imported.
 
 ---
 

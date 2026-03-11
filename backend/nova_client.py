@@ -166,48 +166,64 @@ def detect_violations(
         return []
 
 
-AUDIT_REPORT_PROMPT = """You are a compliance report generator for SOC2 auditors.
+EXECUTIVE_SUMMARY_PROMPT = """You are a compliance auditor writing a formal SOC2 audit report for AcmeCorp.
 
 ## Audit Data
 {audit_data}
 
 ## Task
-Generate a professional compliance audit report in plain text format.
-Include:
-1. Executive Summary
-2. Scan Results Overview
-3. Violations Found (by severity)
-4. Remediations Executed
-5. Current Compliance Score
-6. Recommendations
-
-Use clear section headers with === underlines. Keep the report professional and concise.
-"""
+Write 2-3 paragraphs of formal audit prose summarizing the compliance posture, key findings,
+and overall risk level. No headers, no bullet points, no markdown. Use professional SOC2 audit language."""
 
 
-def generate_audit_report(audit_data: dict[str, Any]) -> str:
-    """
-    Generate a text audit report from audit data via Nova 2 Lite.
-    Returns the report as a string.
-    """
+RECOMMENDATIONS_PROMPT = """You are a compliance auditor writing formal SOC2 recommendations for AcmeCorp.
+
+## Audit Data
+{audit_data}
+
+## Task
+Return 3-5 formal recommendations as a JSON array of strings. Each recommendation should be a single
+sentence in formal audit language addressing the specific findings. Respond ONLY with valid JSON,
+no explanation. Example: ["Recommendation 1.", "Recommendation 2."]"""
+
+
+def generate_executive_summary(audit_data: dict[str, Any]) -> str:
+    """Generate 2-3 paragraphs of formal audit prose via Nova 2 Lite."""
     client = _get_bedrock_client()
-
-    prompt = AUDIT_REPORT_PROMPT.format(
-        audit_data=json.dumps(audit_data, indent=2)
-    )
-
+    prompt = EXECUTIVE_SUMMARY_PROMPT.format(audit_data=json.dumps(audit_data, indent=2))
     payload = {
-        "messages": [
-            {
-                "role": "user",
-                "content": [{"text": prompt}],
-            }
-        ],
-        "inferenceConfig": {
-            "maxTokens": 4096,
-            "temperature": 0.1,
-        },
+        "messages": [{"role": "user", "content": [{"text": prompt}]}],
+        "inferenceConfig": {"maxTokens": 1024, "temperature": 0.1},
     }
-
-    logger.info("Generating audit report via Nova 2 Lite")
+    logger.info("Generating executive summary via Nova 2 Lite")
     return _invoke_with_retry(client, payload)
+
+
+def generate_recommendations(audit_data: dict[str, Any]) -> list[str]:
+    """Generate 3-5 formal recommendations as a list of strings via Nova 2 Lite."""
+    client = _get_bedrock_client()
+    prompt = RECOMMENDATIONS_PROMPT.format(audit_data=json.dumps(audit_data, indent=2))
+    payload = {
+        "messages": [{"role": "user", "content": [{"text": prompt}]}],
+        "inferenceConfig": {"maxTokens": 1024, "temperature": 0.1},
+    }
+    logger.info("Generating recommendations via Nova 2 Lite")
+    raw = _invoke_with_retry(client, payload)
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    try:
+        result = json.loads(text)
+        if isinstance(result, list):
+            return result
+        return result.get("recommendations", [])
+    except json.JSONDecodeError:
+        logger.error("Failed to parse recommendations JSON: %s", raw)
+        return [
+            "Implement quarterly access reviews for all administrative accounts.",
+            "Enforce immediate access revocation upon employee termination.",
+            "Prohibit shared administrative accounts across all systems.",
+        ]

@@ -78,9 +78,13 @@ app.mount("/api/screenshots", StaticFiles(directory=str(SCREENSHOTS_DIR)), name=
 # ---------------------------------------------------------------------------
 
 
+SESSION_START = datetime.now().isoformat()
+
+
 @app.on_event("startup")
 async def startup() -> None:
     database.init_db()
+    database.clear_score_history()
     scheduler.start_scheduler()
     event_bus.set_loop(asyncio.get_running_loop())
     logger.info("Sentinel backend started")
@@ -155,6 +159,9 @@ async def _run_scan_background(scan_id: str) -> None:
         def event_callback(tool: str, message: str, status: str, screenshot: str | None = None) -> None:
             event_bus.emit(scan_id, tool, message, status, screenshot=screenshot)
 
+        # Snapshot: score at scan start (always 100 — no violations yet for this scan)
+        database.insert_score_snapshot(100, "Scan started")
+
         loop = asyncio.get_event_loop()
         scan_results = await loop.run_in_executor(
             None,
@@ -163,6 +170,9 @@ async def _run_scan_background(scan_id: str) -> None:
         violations = ve.analyze_violations(scan_results, scan_id)
 
         completed_at = datetime.now().isoformat()
+        # Snapshot: score after violations detected
+        post_scan_score = ve.calculate_compliance_score(scan_id=scan_id)["score"]
+        database.insert_score_snapshot(post_scan_score, f"Scan complete — {len(violations)} violation(s)", completed_at)
         database.update_scan(
             scan_id,
             status="completed",
@@ -311,6 +321,14 @@ async def _execute_remediation_background(
             ),
         )
         outcome = "remediation_complete" if result.get("success") else "remediation_failed"
+        if result.get("success"):
+            # Snapshot: score after this remediation
+            scan_id_for_score = violation.get("scan_id")
+            remediated_score = violation_engine.calculate_compliance_score(scan_id=scan_id_for_score)["score"]
+            database.insert_score_snapshot(
+                remediated_score,
+                f"Remediated: {violation.get('username', '')} ({violation.get('violation_type', '')})",
+            )
         event_bus.emit(violation_id, "system", outcome, "success" if result.get("success") else "error")
         event_bus.close(violation_id)
     except Exception as exc:
@@ -371,8 +389,8 @@ async def dismiss_violation(
 
 @app.get("/api/audit-trail")
 async def get_audit_trail() -> list[dict[str, Any]]:
-    """Return full audit history."""
-    return database.get_audit_trail()
+    """Return audit history for the current server session only."""
+    return database.get_audit_trail(since=SESSION_START)
 
 
 # ---------------------------------------------------------------------------
@@ -386,151 +404,644 @@ async def get_compliance_score() -> dict[str, Any]:
     return violation_engine.calculate_compliance_score()
 
 
+@app.get("/api/compliance-score/history")
+async def get_score_history() -> list[dict[str, Any]]:
+    """Return score snapshots for trend chart."""
+    return database.get_score_history()
+
+
 # ---------------------------------------------------------------------------
 # PDF / text report export
 # ---------------------------------------------------------------------------
 
 
-def _build_pdf(report_text: str) -> bytes:
-    """Convert the Nova 2 Lite plain-text report into a formatted PDF."""
+SOC2_CONTROLS: dict[str, Any] = {
+    "CC6.1": {
+        "name": "Logical and Physical Access Controls",
+        "description": (
+            "The entity implements logical access security measures to protect against "
+            "unauthorized access."
+        ),
+        "violation_types": ["INACTIVE_ADMIN"],
+    },
+    "CC6.2": {
+        "name": "User Access Provisioning and Deprovisioning",
+        "description": (
+            "The entity manages access credentials for personnel and removes access "
+            "upon termination."
+        ),
+        "violation_types": ["ACCESS_VIOLATION"],
+    },
+    "CC6.3": {
+        "name": "Access Role Management",
+        "description": (
+            "The entity authorizes and manages role-based access and restricts "
+            "privileged access."
+        ),
+        "violation_types": ["SHARED_ACCOUNT", "PERMISSION_CREEP"],
+    },
+}
+
+VIOLATION_TEMPLATES: dict[str, str] = {
+    "ACCESS_VIOLATION": (
+        "Terminated employee '{username}' retained {role} privileges in {tool} "
+        "post-termination. This constitutes a violation of SOC2 CC6.2."
+    ),
+    "INACTIVE_ADMIN": (
+        "Account '{username}' ({role}) has not authenticated in {days}+ days while "
+        "retaining administrative privileges in {tool}. This constitutes a violation "
+        "of SOC2 CC6.1."
+    ),
+    "SHARED_ACCOUNT": (
+        "Shared account '{username}' was identified with {role} access in {tool}. "
+        "Shared privileged accounts violate SOC2 CC6.3."
+    ),
+    "PERMISSION_CREEP": (
+        "User '{username}' ({department}, {role_title}) holds elevated {role} privileges "
+        "in {tool} inconsistent with their designated role. This constitutes a violation "
+        "of SOC2 CC6.3."
+    ),
+}
+
+
+def _format_detection_method(v: dict[str, Any]) -> str:
+    """Return a short 'how Sentinel found this' narrative for a violation."""
+    vtype = v.get("violation_type", "")
+    tool  = v.get("tool_name") or v.get("tool", "the tool")
+    uname = v.get("username", "the account")
+    role  = v.get("role", "administrative")
+    dept  = v.get("department", "unknown department")
+    evidence = v.get("evidence", "")
+    days_match = re.search(r"(\d+)\s*days?", evidence, re.IGNORECASE)
+    days = days_match.group(1) if days_match else "90"
+
+    if vtype == "ACCESS_VIOLATION":
+        return (
+            f"Sentinel's Nova Act agent logged into {tool} and extracted the full active "
+            f"user list via browser automation. The account '{uname}' was cross-referenced "
+            f"against the HR system of record and flagged because the employee is marked "
+            f"TERMINATED in HR records but retains active {role} access in the tool."
+        )
+    if vtype == "INACTIVE_ADMIN":
+        return (
+            f"Sentinel's Nova Act agent logged into {tool} and scraped last-login timestamps "
+            f"for all privileged accounts. '{uname}' was flagged for holding {role} privileges "
+            f"with no recorded authentication activity in over {days} days, exceeding the "
+            f"90-day inactivity threshold defined in SOC2 CC6.1 policy."
+        )
+    if vtype == "SHARED_ACCOUNT":
+        return (
+            f"Sentinel's Nova Act agent logged into {tool} and scanned all user accounts. "
+            f"'{uname}' was identified as a shared account by username pattern analysis and "
+            f"flagged for holding {role} access. Shared privileged accounts cannot be "
+            f"individually attributed and violate SOC2 CC6.3 non-repudiation requirements."
+        )
+    if vtype == "PERMISSION_CREEP":
+        return (
+            f"Sentinel's Nova Act agent logged into {tool} and extracted user roles. "
+            f"'{uname}' ({dept}) was cross-referenced against the role policy ruleset. "
+            f"Their designated job classification is on the restricted list for {role} "
+            f"access, indicating privilege accumulation beyond their authorised scope "
+            f"in violation of SOC2 CC6.3."
+        )
+    return (
+        f"Sentinel's Nova Act agent detected this violation during an automated scan of {tool}."
+    )
+
+
+def _format_violation_description(v: dict[str, Any]) -> str:
+    vtype = v.get("violation_type", "")
+    tmpl = VIOLATION_TEMPLATES.get(vtype, "{evidence}")
+    evidence = v.get("evidence", "")
+    days_match = re.search(r"(\d+)\s*days?", evidence, re.IGNORECASE)
+    days = days_match.group(1) if days_match else "90"
+    try:
+        return tmpl.format(
+            username=v.get("username", "unknown"),
+            role=v.get("role", "unknown"),
+            tool=v.get("tool_name") or v.get("tool", "unknown"),
+            days=days,
+            department=v.get("department", "unknown"),
+            role_title=v.get("role", "unknown"),
+            evidence=evidence,
+        )
+    except KeyError:
+        return evidence
+
+
+def _sanitize(text: str) -> str:
+    """Replace Unicode characters outside latin-1 with ASCII equivalents."""
+    return (
+        text
+        .replace("\u2014", "--")   # em dash
+        .replace("\u2013", "-")    # en dash
+        .replace("\u2018", "'")    # left single quote
+        .replace("\u2019", "'")    # right single quote
+        .replace("\u201c", '"')    # left double quote
+        .replace("\u201d", '"')    # right double quote
+        .replace("\u2022", "-")    # bullet
+        .replace("\u00b7", ".")    # middle dot
+        .replace("\u2026", "...")  # ellipsis
+        .encode("latin-1", errors="replace").decode("latin-1")
+    )
+
+
+def _build_soc2_pdf(
+    audit_data: dict[str, Any],
+    executive_summary: str,
+    recommendations: list[str],
+) -> bytes:
+    """Build a structured SOC2 compliance PDF directly from audit data."""
     from fpdf import FPDF
 
-    LH = 5.5  # standard line height
+    violations: list[dict[str, Any]] = audit_data.get("violations", [])
+    latest_scan = audit_data.get("latest_scan")
 
-    def _write_inline(pdf: FPDF, text: str) -> None:
-        """Write a string, switching to bold for **…** spans."""
-        for part in re.split(r"(\*\*[^*]+\*\*)", text):
-            if part.startswith("**") and part.endswith("**"):
-                pdf.set_font("Helvetica", "B", 9)
-                pdf.write(LH, part[2:-2])
-            else:
-                pdf.set_font("Helvetica", "", 9)
-                pdf.write(LH, part)
+    if latest_scan and latest_scan.get("started_at"):
+        scan_date = latest_scan["started_at"][:10]
+    else:
+        scan_date = datetime.now().strftime("%Y-%m-%d")
 
-    pdf = FPDF()
-    pdf.set_margins(20, 20, 20)
-    pdf.set_auto_page_break(auto=True, margin=20)
+    open_v = [v for v in violations if v.get("status") == "open"]
+    crit = sum(1 for v in open_v if v.get("severity") == "CRITICAL")
+    high = sum(1 for v in open_v if v.get("severity") == "HIGH")
+    med  = sum(1 for v in open_v if v.get("severity") == "MEDIUM")
+    score_obj = audit_data.get("compliance_score", {})
+    final_score = score_obj.get("score", max(0, 100 - crit * 15 - high * 8 - med * 4))
+    remediated = [v for v in violations if v.get("status") == "resolved"]
+
+    LH = 5.5
+    BLUE       = (37, 99, 235)
+    SLATE_900  = (15, 23, 42)
+    SLATE_800  = (30, 41, 59)
+    SLATE_600  = (71, 85, 105)
+    SLATE_400  = (148, 163, 184)
+    WHITE      = (255, 255, 255)
+
+    class _SOC2PDF(FPDF):
+        def __init__(self_inner):
+            super().__init__("P", "mm", "A4")
+            self_inner._is_cover = True
+            self_inner.set_margins(20, 22, 20)
+            self_inner.set_auto_page_break(auto=True, margin=20)
+
+        def header(self_inner):
+            if self_inner._is_cover:
+                return
+            self_inner.set_fill_color(*SLATE_900)
+            self_inner.rect(0, 0, self_inner.w, 12, style="F")
+            self_inner.set_y(3.5)
+            self_inner.set_x(self_inner.l_margin)
+            self_inner.set_font("Helvetica", "B", 8)
+            self_inner.set_text_color(*SLATE_400)
+            self_inner.cell(self_inner.epw - 20, 5.5, "SENTINEL -- SOC2 Compliance Report", align="L")
+            self_inner.cell(20, 5.5, f"Page {self_inner.page_no()}", align="R")
+            # Position cursor below the header bar so content never overlaps it
+            self_inner.set_y(self_inner.t_margin)
+            self_inner.set_text_color(*SLATE_800)
+
+        def footer(self_inner):
+            if self_inner._is_cover:
+                return
+            self_inner.set_y(-12)
+            self_inner.set_x(self_inner.l_margin)
+            self_inner.set_font("Helvetica", "I", 7)
+            self_inner.set_text_color(*SLATE_400)
+            self_inner.cell(self_inner.epw - 20, 5, "CONFIDENTIAL -- For Internal and Auditor Use Only", align="C")
+            self_inner.cell(20, 5, f"Page {self_inner.page_no()}", align="R")
+
+    pdf = _SOC2PDF()
+
+    # ── Cover page ────────────────────────────────────────────────────────────
+    pdf._is_cover = True
     pdf.add_page()
 
-    # ── Header banner ────────────────────────────────────────────────────────
-    pdf.set_fill_color(15, 23, 42)          # slate-900
-    pdf.rect(0, 0, pdf.w, 38, style="F")
-    pdf.set_y(8)
-    pdf.set_font("Helvetica", "B", 22)
-    pdf.set_text_color(255, 255, 255)
-    pdf.cell(pdf.w, 12, "SENTINEL", align="C", ln=True)
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(148, 163, 184)       # slate-400
-    pdf.cell(pdf.w, 6, "Compliance Audit Report  \u00b7  SOC2 / HIPAA / GDPR", align="C", ln=True)
-    pdf.set_text_color(100, 116, 139)       # slate-500
-    pdf.cell(pdf.w, 5, f"Generated {datetime.now().strftime('%B %d, %Y  at  %H:%M')}", align="C", ln=True)
-    pdf.set_y(48)
-    pdf.set_text_color(30, 41, 59)          # slate-800 (default body colour)
+    pdf.set_fill_color(*SLATE_900)
+    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
 
-    # ── Body ─────────────────────────────────────────────────────────────────
-    for raw_line in report_text.splitlines():
-        stripped = raw_line.strip()
+    # CONFIDENTIAL watermark — rotated 45°, dark-on-dark
+    cx, cy = pdf.w / 2, pdf.h / 2
+    with pdf.rotation(angle=45, x=cx, y=cy):
+        pdf.set_font("Helvetica", "B", 60)
+        pdf.set_text_color(30, 41, 59)
+        tw = pdf.get_string_width("CONFIDENTIAL")
+        pdf.text(x=cx - tw / 2, y=cy + 12, txt="CONFIDENTIAL")
 
-        # blank line → small gap
-        if not stripped:
-            pdf.ln(2)
-            continue
+    pdf.set_y(78)
+    pdf.set_x(0)
+    pdf.set_font("Helvetica", "B", 48)
+    pdf.set_text_color(*WHITE)
+    pdf.cell(pdf.w, 22, "SENTINEL", align="C", ln=True)
 
-        # Screenshot filename → embed actual image
-        img_match = re.search(r"([\w\-]+\.png)", stripped)
-        if img_match:
-            img_name = img_match.group(1)
-            img_path = Path(__file__).parent / "screenshots" / img_name
-            if img_path.exists():
-                # Print any surrounding label text first
-                label = re.sub(r"\[?[\w\-]+\.png\]?", "", stripped).strip(" :-")
-                if label:
-                    pdf.set_x(pdf.l_margin)
-                    pdf.set_font("Helvetica", "I", 8)
-                    pdf.set_text_color(100, 116, 139)
-                    pdf.cell(pdf.epw, 5, label, ln=True)
-                pdf.set_x(pdf.l_margin)
-                pdf.image(str(img_path), x=pdf.l_margin, w=pdf.epw)
-                pdf.ln(4)
-                continue
+    pdf.set_x(0)
+    pdf.set_font("Helvetica", "", 12)
+    pdf.set_text_color(*SLATE_400)
+    pdf.cell(pdf.w, 8, "AcmeCorp", align="C", ln=True)
 
-        # === Section header ===
-        if stripped.startswith("==="):
-            title = stripped.strip("= ").strip()
-            pdf.ln(5)
-            pdf.set_fill_color(37, 99, 235)     # blue-600
-            pdf.set_text_color(255, 255, 255)
-            pdf.set_font("Helvetica", "B", 10)
-            pdf.set_x(pdf.l_margin)
-            pdf.cell(pdf.epw, 9, f"  {title}", fill=True, ln=True)
-            pdf.set_text_color(30, 41, 59)
-            pdf.ln(2)
-            continue
+    pdf.ln(8)
+    pdf.set_x(0)
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_text_color(*WHITE)
+    pdf.cell(pdf.w, 10, "SOC2 Type II Compliance Audit Report", align="C", ln=True)
 
-        # --- horizontal rule
-        if stripped.startswith("---"):
-            pdf.set_x(pdf.l_margin)
-            y = pdf.get_y() + 2
-            pdf.set_draw_color(148, 163, 184)
-            pdf.line(pdf.l_margin, y, pdf.l_margin + pdf.epw, y)
-            pdf.ln(6)
-            continue
+    pdf.ln(4)
+    pdf.set_x(0)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(100, 116, 139)
+    pdf.cell(pdf.w, 7, f"Audit Period:  {scan_date}", align="C", ln=True)
 
-        # - bullet point  (supports one level of indentation)
-        if stripped.startswith("- ") or stripped.startswith("* "):
-            indent = len(raw_line) - len(raw_line.lstrip(" "))
-            x_off = pdf.l_margin + 4 + max(0, indent - 1) * 4
-            pdf.set_x(x_off)
-            pdf.set_text_color(30, 41, 59)
-            pdf.set_font("Helvetica", "", 9)
-            pdf.cell(5, LH, "\xb7", ln=False)
-            _write_inline(pdf, stripped[2:])
-            pdf.ln(LH)
-            continue
+    pdf.set_y(pdf.h - 22)
+    pdf.set_x(0)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(71, 85, 105)
+    pdf.cell(pdf.w, 5, f"Generated {datetime.now().strftime('%B %d, %Y  at  %H:%M UTC')}", align="C", ln=True)
 
-        # 1. Numbered list item
-        num_match = re.match(r"^(\d+)\.\s+(.*)", stripped)
-        if num_match:
-            num, content = num_match.group(1), num_match.group(2)
-            pdf.set_x(pdf.l_margin + 4)
-            pdf.set_font("Helvetica", "B", 9)
-            pdf.set_text_color(37, 99, 235)
-            pdf.cell(7, LH, f"{num}.", ln=False)
-            pdf.set_text_color(30, 41, 59)
-            _write_inline(pdf, content)
-            pdf.ln(LH)
-            continue
+    # ── Content pages ─────────────────────────────────────────────────────────
+    pdf._is_cover = False
 
-        # regular paragraph text
+    def section_header(title: str) -> None:
+        pdf.ln(4)
+        pdf.set_fill_color(*BLUE)
+        pdf.set_text_color(*WHITE)
+        pdf.set_font("Helvetica", "B", 11)
         pdf.set_x(pdf.l_margin)
-        pdf.set_text_color(71, 85, 105)     # slate-600
-        _write_inline(pdf, stripped)
-        pdf.ln(LH)
+        pdf.cell(pdf.epw, 9, f"  {title}", fill=True, ln=True)
+        pdf.set_text_color(*SLATE_800)
+        pdf.ln(3)
+
+    def subsection_header(title: str) -> None:
+        pdf.ln(3)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(*SLATE_800)
+        pdf.set_x(pdf.l_margin)
+        pdf.cell(pdf.epw, 7, title, ln=True)
+        y = pdf.get_y()
+        pdf.set_draw_color(*SLATE_400)
+        pdf.line(pdf.l_margin, y, pdf.l_margin + pdf.epw, y)
+        pdf.ln(3)
+
+    def body_text(text: str) -> None:
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(*SLATE_600)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(pdf.epw, LH, text)
+        pdf.ln(2)
+
+    def embed_image(img_path_str: str, indent: float = 0, img_w: float = 130) -> None:
+        """Embed an image, inserting a page break first if it won't fit."""
+        img_h_est = img_w * 0.6  # conservative ratio to prevent overflow
+        if pdf.get_y() + img_h_est > pdf.h - 25:
+            pdf.add_page()
+            pdf.set_y(pdf.t_margin)  # header() leaves cursor inside the bar; reset below it
+        try:
+            pdf.set_x(pdf.l_margin + indent)
+            pdf.image(img_path_str, x=pdf.l_margin + indent, w=img_w)
+            pdf.ln(3)
+        except Exception:
+            pass
+
+    # Section 1 — Executive Summary
+    pdf.add_page()
+    section_header("Section 1 -- Executive Summary")
+    body_text(_sanitize(executive_summary))
+
+    # Section 2 — Audit Scope & Methodology
+    section_header("Section 2 -- Audit Scope & Methodology")
+    body_text(
+        "This audit was conducted by the Sentinel Compliance Platform across three enterprise "
+        "internal tools: HR Portal (port 5001), IT Admin (port 5002), and Procurement Portal "
+        "(port 5003). The audit employed Amazon Nova Act for browser automation-driven data "
+        "extraction and Amazon Nova 2 Lite (via AWS Bedrock) for AI-driven violation detection "
+        "and analysis.\n\n"
+        "Each tool was accessed programmatically to extract user account data including "
+        "usernames, roles, departments, and last-login timestamps. This data was "
+        "cross-referenced against the HR system of record to identify access control violations "
+        "across SOC2 Trust Service Criteria CC6.1, CC6.2, and CC6.3."
+    )
+
+    # Section 3 — Findings by SOC2 Control
+    pdf.add_page()
+    section_header("Section 3 -- Findings by SOC2 Control")
+
+    finding_num = 1
+    sev_colors = {
+        "CRITICAL": (239, 68, 68),
+        "HIGH":     (249, 115, 22),
+        "MEDIUM":   (234, 179, 8),
+        "LOW":      (34, 197, 94),
+    }
+    for idx, (control_id, control_info) in enumerate(SOC2_CONTROLS.items()):
+        control_violations = [v for v in violations if v.get("soc2_control") == control_id]
+        if idx > 0:
+            pdf.add_page()
+        subsection_header(f"{control_id} -- {control_info['name']}")
+        body_text(control_info["description"])
+
+        if not control_violations:
+            pdf.set_font("Helvetica", "I", 9)
+            pdf.set_text_color(*SLATE_400)
+            pdf.set_x(pdf.l_margin)
+            pdf.cell(pdf.epw, LH, "No violations found for this control.", ln=True)
+            pdf.ln(2)
+        else:
+            for v in control_violations:
+                severity = v.get("severity", "")
+                badge_rgb = sev_colors.get(severity, (100, 116, 139))
+
+                pdf.set_fill_color(*badge_rgb)
+                pdf.set_x(pdf.l_margin)
+                pdf.cell(2, LH, "", fill=True, ln=False)
+                pdf.set_font("Helvetica", "B", 9)
+                pdf.set_text_color(*SLATE_800)
+                pdf.cell(pdf.epw - 2, LH, f"  Finding #{finding_num} -- {control_id} Violation [{severity}]", ln=True)
+
+                # Violation description
+                desc = _sanitize(_format_violation_description(v))
+                pdf.set_font("Helvetica", "B", 8)
+                pdf.set_text_color(*SLATE_800)
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.cell(pdf.epw - 4, LH, "Finding:", ln=True)
+                pdf.set_font("Helvetica", "", 9)
+                pdf.set_text_color(*SLATE_600)
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.multi_cell(pdf.epw - 4, LH, desc)
+                pdf.ln(1)
+
+                # How Sentinel detected this
+                detection = _sanitize(_format_detection_method(v))
+                pdf.set_font("Helvetica", "B", 8)
+                pdf.set_text_color(*SLATE_800)
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.cell(pdf.epw - 4, LH, "How Sentinel detected this:", ln=True)
+                pdf.set_font("Helvetica", "", 9)
+                pdf.set_text_color(*SLATE_600)
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.multi_cell(pdf.epw - 4, LH, detection)
+                pdf.ln(1)
+
+                status_label = v.get("status", "open").title()
+                pdf.set_font("Helvetica", "I", 8)
+                pdf.set_text_color(*SLATE_400)
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.cell(pdf.epw - 4, LH, f"Status: {status_label}", ln=True)
+
+                screenshot_path = v.get("screenshot_path")
+                if screenshot_path:
+                    img_path = SCREENSHOTS_DIR / Path(screenshot_path).name
+                    if img_path.exists():
+                        embed_image(str(img_path), indent=0, img_w=pdf.epw)
+                pdf.ln(4)
+                finding_num += 1
+
+    # Section 4 — Compliance Score
+    pdf.add_page()
+    section_header("Section 4 -- Compliance Score")
+
+    # Scoring methodology explanation
+    body_text(
+        "Sentinel uses a 100-point baseline scoring model to quantify the organisation's "
+        "SOC2 compliance posture. Each open violation detected during the scan incurs a "
+        "point deduction scaled to its severity:"
+    )
+
+    bullet_items = [
+        "CRITICAL (-15 pts):  Immediate, severe risk -- e.g. terminated employees retaining active system access (CC6.2).",
+        "HIGH (-8 pts):       Significant risk requiring prompt action -- e.g. inactive administrator accounts (CC6.1).",
+        "MEDIUM (-4 pts):     Elevated risk requiring remediation -- e.g. permission creep or shared privileged accounts (CC6.3).",
+    ]
+    for item in bullet_items:
+        pdf.set_x(pdf.l_margin + 4)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(*SLATE_600)
+        pdf.cell(5, LH, "-", ln=False)
+        pdf.multi_cell(pdf.epw - 9, LH, _sanitize(item))
+
+    pdf.ln(2)
+    body_text(
+        "Only open (un-remediated) violations contribute to deductions. Resolved or "
+        "dismissed violations are excluded from the calculation."
+    )
+
+    # Score narrative
+    total_open = crit + high + med
+    if total_open == 0:
+        narrative = (
+            "No open violations were detected during this scan. The organisation achieved "
+            "a perfect compliance score of 100, indicating full adherence to the audited "
+            "SOC2 Trust Service Criteria for this assessment period."
+        )
+    else:
+        parts = []
+        if crit:
+            parts.append(f"{crit} CRITICAL violation{'s' if crit > 1 else ''} (-{crit * 15} pts)")
+        if high:
+            parts.append(f"{high} HIGH violation{'s' if high > 1 else ''} (-{high * 8} pts)")
+        if med:
+            parts.append(f"{med} MEDIUM violation{'s' if med > 1 else ''} (-{med * 4} pts)")
+        deducted = 100 - final_score
+        narrative = (
+            f"This scan identified {total_open} open violation{'s' if total_open > 1 else ''}: "
+            f"{', '.join(parts)}. A total of {deducted} points were deducted from the 100-point "
+            f"baseline, yielding a final compliance score of {final_score}/100. "
+        )
+        if final_score >= 80:
+            narrative += "The score reflects a generally compliant posture with isolated findings requiring attention."
+        elif final_score >= 50:
+            narrative += "The score indicates a moderate compliance risk; the identified violations require prompt remediation."
+        else:
+            narrative += "The score reflects significant compliance risk. Immediate remediation of all open violations is strongly recommended."
+    body_text(narrative)
+
+    col_label = pdf.epw - 25
+
+    def score_row(label: str, value: str, bold: bool = False, separator: bool = False) -> None:
+        if separator:
+            y = pdf.get_y()
+            pdf.set_draw_color(*SLATE_400)
+            pdf.line(pdf.l_margin, y, pdf.l_margin + pdf.epw, y)
+            pdf.ln(1)
+        style = "B" if bold else ""
+        pdf.set_font("Courier", style, 9)
+        pdf.set_text_color(*SLATE_800 if bold else SLATE_600)
+        pdf.set_x(pdf.l_margin)
+        pdf.cell(col_label, LH, label, ln=False)
+        pdf.cell(25, LH, value, align="R", ln=True)
+
+    score_row("Baseline Score:", "100")
+    score_row(f"CRITICAL deductions:  {crit} x -15  =", f"-{crit * 15}")
+    score_row(f"HIGH deductions:      {high} x -8   =", f"-{high * 8}")
+    score_row(f"MEDIUM deductions:    {med} x -4   =", f"-{med * 4}")
+    score_row("Final Score:", str(final_score), bold=True, separator=True)
+    pdf.ln(4)
+
+    # Section 5 — Remediation Summary
+    pdf.add_page()
+    section_header("Section 5 -- Remediation Summary")
+
+    if not remediated:
+        body_text("No remediations have been executed during this audit period.")
+    else:
+        # Build lookup: violation_id -> audit trail entry for remediations
+        audit_trail = audit_data.get("audit_trail", [])
+        remediation_audit: dict[str, dict[str, Any]] = {
+            e["violation_id"]: e
+            for e in audit_trail
+            if e.get("event_type") == "remediation_approved" and e.get("violation_id")
+        }
+
+        for rem_num, v in enumerate(remediated, 1):
+            vid = v.get("violation_id", "")
+            audit_entry = remediation_audit.get(vid, {})
+            severity = v.get("severity", "")
+            badge_rgb = {
+                "CRITICAL": (239, 68, 68),
+                "HIGH":     (249, 115, 22),
+                "MEDIUM":   (234, 179, 8),
+            }.get(severity, (100, 116, 139))
+
+            # Heading row with severity badge
+            pdf.set_fill_color(*badge_rgb)
+            pdf.set_x(pdf.l_margin)
+            pdf.cell(2, LH, "", fill=True, ln=False)
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.set_text_color(*SLATE_800)
+            vtype = v.get("violation_type", "")
+            pdf.cell(
+                pdf.epw - 2, LH,
+                f"  Remediation #{rem_num} -- {vtype} [{severity}] -- {v.get('username', '')} on {v.get('tool_name', v.get('tool', ''))}",
+                ln=True,
+            )
+            pdf.ln(1)
+
+            # Finding
+            pdf.set_font("Helvetica", "B", 8)
+            pdf.set_text_color(*SLATE_800)
+            pdf.set_x(pdf.l_margin + 4)
+            pdf.cell(pdf.epw - 4, LH, "Finding:", ln=True)
+            pdf.set_font("Helvetica", "", 9)
+            pdf.set_text_color(*SLATE_600)
+            pdf.set_x(pdf.l_margin + 4)
+            pdf.multi_cell(pdf.epw - 4, LH, _sanitize(v.get("evidence", _format_violation_description(v))))
+            pdf.ln(1)
+
+            # Actions Taken (Nova Act instructions from audit trail details)
+            steps = audit_entry.get("details", "")
+            if steps:
+                pdf.set_font("Helvetica", "B", 8)
+                pdf.set_text_color(*SLATE_800)
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.cell(pdf.epw - 4, LH, "Actions Taken by Sentinel:", ln=True)
+                pdf.set_font("Helvetica", "", 9)
+                pdf.set_text_color(*SLATE_600)
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.multi_cell(pdf.epw - 4, LH, _sanitize(steps))
+                pdf.ln(1)
+
+            # Result
+            resolved_at = (audit_entry.get("timestamp") or v.get("resolved_at") or "")[:16]
+            resolved_by = audit_entry.get("actor") or v.get("resolved_by") or "system"
+            result_line = f"Successfully remediated by {resolved_by} at {resolved_at}."
+            if audit_entry.get("result") == "manual_review":
+                result_line = f"Flagged for manual review by {resolved_by} at {resolved_at}."
+            pdf.set_font("Helvetica", "B", 8)
+            pdf.set_text_color(*SLATE_800)
+            pdf.set_x(pdf.l_margin + 4)
+            pdf.cell(pdf.epw - 4, LH, "Result:", ln=True)
+            pdf.set_font("Helvetica", "", 9)
+            pdf.set_text_color(*SLATE_600)
+            pdf.set_x(pdf.l_margin + 4)
+            pdf.cell(pdf.epw - 4, LH, _sanitize(result_line), ln=True)
+            pdf.ln(1)
+
+            # Screenshot evidence (prefer audit entry screenshot, fall back to violation screenshot)
+            shot = audit_entry.get("screenshot_path") or v.get("screenshot_path")
+            if shot:
+                img_path = SCREENSHOTS_DIR / Path(shot).name
+                if img_path.exists():
+                    pdf.set_font("Helvetica", "I", 8)
+                    pdf.set_text_color(*SLATE_400)
+                    pdf.set_x(pdf.l_margin + 4)
+                    pdf.cell(pdf.epw - 4, LH, "Evidence screenshot:", ln=True)
+                    embed_image(str(img_path), indent=0, img_w=pdf.epw)
+
+            pdf.ln(5)
+
+    # Section 6 — Recommendations
+    pdf.add_page()
+    section_header("Section 6 -- Recommendations")
+
+    for i, rec in enumerate(recommendations, 1):
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(*BLUE)
+        pdf.cell(8, LH, f"{i}.", ln=False)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(*SLATE_600)
+        pdf.multi_cell(pdf.epw - 8, LH, _sanitize(rec))
+        pdf.ln(2)
+
+    # Attestation block
+    pdf.ln(8)
+    y = pdf.get_y()
+    pdf.set_draw_color(*SLATE_400)
+    pdf.line(pdf.l_margin, y, pdf.l_margin + pdf.epw, y)
+    pdf.ln(5)
+
+    generated_at = datetime.now().strftime("%B %d, %Y at %H:%M UTC")
+    attestation = (
+        f"This report was generated by Sentinel Compliance Platform v1.0\n"
+        f"on {generated_at}.\n\n"
+        "Automated analysis powered by Amazon Nova Act (browser automation)\n"
+        "and Amazon Nova 2 Lite (AI-driven violation detection).\n\n"
+        "This document is intended for internal use and qualified auditors only."
+    )
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(*SLATE_600)
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(pdf.epw, LH, attestation, align="C")
+
+    y2 = pdf.get_y() + 3
+    pdf.set_draw_color(*SLATE_400)
+    pdf.line(pdf.l_margin, y2, pdf.l_margin + pdf.epw, y2)
 
     return bytes(pdf.output())
 
 
 @app.get("/api/reports/export")
 async def export_report() -> Response:
-    """Generate a formatted PDF audit report via Nova 2 Lite and return it as a download."""
+    """Generate a structured SOC2 PDF audit report and return it as a download."""
+    latest_scan = database.get_latest_scan()
+    scan_id = latest_scan["scan_id"] if latest_scan else None
     audit_data = {
         "generated_at": datetime.now().isoformat(),
-        "violations": database.get_violations(),
-        "audit_trail": database.get_audit_trail()[:50],
-        "compliance_score": violation_engine.calculate_compliance_score(),
-        "latest_scan": database.get_latest_scan(),
+        "violations": database.get_violations(scan_id=scan_id),
+        "audit_trail": database.get_audit_trail(since=SESSION_START)[:50],
+        "compliance_score": violation_engine.calculate_compliance_score(scan_id=scan_id),
+        "latest_scan": latest_scan,
     }
 
     try:
-        report_text = nova_client.generate_audit_report(audit_data)
+        executive_summary = nova_client.generate_executive_summary(audit_data)
     except Exception as exc:
-        logger.error("Report generation failed: %s", exc)
-        raise HTTPException(
-            status_code=500, detail=f"Report generation failed: {exc}"
+        logger.error("Executive summary generation failed: %s", exc)
+        executive_summary = (
+            "This automated compliance audit was conducted by the Sentinel platform across "
+            "enterprise internal tools. The audit identified access control violations "
+            "requiring remediation. Please review the findings in this report for details."
         )
 
-    pdf_bytes = _build_pdf(report_text)
-    filename = f"sentinel_audit_{datetime.now().strftime('%Y%m%d')}.pdf"
+    try:
+        recommendations = nova_client.generate_recommendations(audit_data)
+    except Exception as exc:
+        logger.error("Recommendations generation failed: %s", exc)
+        recommendations = [
+            "Implement quarterly access reviews for all administrative accounts.",
+            "Enforce immediate access revocation upon employee termination.",
+            "Prohibit shared administrative accounts across all systems.",
+        ]
+
+    pdf_bytes = _build_soc2_pdf(audit_data, executive_summary, recommendations)
+    filename = f"sentinel_soc2_audit_{datetime.now().strftime('%Y%m%d')}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

@@ -27,6 +27,7 @@ USERS = [
         "status": "Active",
         "access_level": "Administrator",
         "email": "jsmith@acmecorp.com",
+        "failed_login_attempts": 0,
     },
     {
         "id": 2,
@@ -39,6 +40,7 @@ USERS = [
         "access_level": "Administrator",
         "email": "it-team@acmecorp.com",
         "_note": "SHARED_ACCOUNT — shared account with admin privileges",
+        "failed_login_attempts": 7,
     },
     {
         "id": 3,
@@ -51,6 +53,7 @@ USERS = [
         "access_level": "Administrator",
         "email": "jlee@acmecorp.com",
         "_note": "PERMISSION_CREEP — intern with admin access",
+        "failed_login_attempts": 2,
     },
     {
         "id": 4,
@@ -62,6 +65,7 @@ USERS = [
         "status": "Active",
         "access_level": "Administrator",
         "email": "bchen@acmecorp.com",
+        "failed_login_attempts": 0,
     },
     {
         "id": 5,
@@ -73,6 +77,7 @@ USERS = [
         "status": "Active",
         "access_level": "Power User",
         "email": "lnguyen@acmecorp.com",
+        "failed_login_attempts": 1,
     },
     {
         "id": 6,
@@ -84,6 +89,7 @@ USERS = [
         "status": "Active",
         "access_level": "Standard User",
         "email": "alopez@acmecorp.com",
+        "failed_login_attempts": 0,
     },
     {
         "id": 7,
@@ -95,6 +101,7 @@ USERS = [
         "status": "Active",
         "access_level": "Standard User",
         "email": "rthompson@acmecorp.com",
+        "failed_login_attempts": 0,
     },
     {
         "id": 8,
@@ -106,6 +113,7 @@ USERS = [
         "status": "Active",
         "access_level": "Standard User",
         "email": "kpatel@acmecorp.com",
+        "failed_login_attempts": 0,
     },
 ]
 

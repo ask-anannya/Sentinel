@@ -5,6 +5,7 @@ import ComplianceScore from '../components/ComplianceScore.jsx'
 import ScanStatus from '../components/ScanStatus.jsx'
 import SentinelSplash from '../components/SentinelSplash.jsx'
 import AudioBriefing from '../components/AudioBriefing.jsx'
+import ScoreTrendChart from '../components/ScoreTrendChart.jsx'
 import { useVoiceAssistant } from '../App.jsx'
 
 const TOOLS = [
@@ -32,6 +33,7 @@ export default function Dashboard() {
   const [scoreData, setScoreData] = useState(null)
   const [violations, setViolations] = useState([])
   const [auditTrail, setAuditTrail] = useState([])
+  const [scoreHistory, setScoreHistory] = useState([])
   const [scanning, setScanning] = useState(false)
   const [scanId, setScanId] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -46,15 +48,17 @@ export default function Dashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [scoreRes, violationsRes, auditRes] = await Promise.all([
+      const [scoreRes, violationsRes, auditRes, historyRes] = await Promise.all([
         axios.get('/api/compliance-score'),
         axios.get('/api/violations'),
         axios.get('/api/audit-trail'),
+        axios.get('/api/compliance-score/history'),
       ])
       setScore(scoreRes.data.score)
       setScoreData(scoreRes.data)
       setViolations(violationsRes.data)
       setAuditTrail(auditRes.data.slice(0, 10))
+      setScoreHistory(historyRes.data)
     } catch (err) {
       console.error('Failed to fetch data:', err)
     } finally {
@@ -202,6 +206,16 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Score trend chart */}
+        <div className="mt-6 bg-slate-900 border border-slate-700 rounded-2xl p-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Activity size={16} className="text-blue-400" />
+            <h2 className="text-white font-semibold">Compliance Score Trend</h2>
+            <span className="text-slate-500 text-xs ml-1">— this session</span>
+          </div>
+          <ScoreTrendChart data={scoreHistory} />
         </div>
 
         {/* Recent audit activity */}

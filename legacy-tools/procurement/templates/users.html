@@ -61,6 +61,7 @@
                     <th>Approval Rights</th>
                     <th>Spending Limit</th>
                     <th>Workflow Status</th>
+                    <th>Contract Expiry</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -94,6 +95,15 @@
                             <span class="status-pending">&#9203; Pending</span>
                         {% else %}
                             <span class="status-rejected">&#10007; Rejected</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.contract_expiry == "N/A" %}
+                            <span style="color:#999;">N/A</span>
+                        {% elif user.contract_expiry < now[:10] %}
+                            <span style="color:#cc0000; font-weight:bold;">&#9888; {{ user.contract_expiry }}</span>
+                        {% else %}
+                            {{ user.contract_expiry }}
                         {% endif %}
                     </td>
                     <td>

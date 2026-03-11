@@ -54,6 +54,13 @@ def init_db() -> None:
                 FOREIGN KEY (scan_id) REFERENCES scans(scan_id)
             );
 
+            CREATE TABLE IF NOT EXISTS score_history (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp   TEXT NOT NULL,
+                score       INTEGER NOT NULL,
+                event       TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS audit_trail (
                 entry_id        TEXT PRIMARY KEY,
                 event_type      TEXT NOT NULL,       -- scan_started | scan_completed | violation_detected | remediation_approved | violation_dismissed
@@ -150,12 +157,15 @@ def insert_violations(violations: list[dict[str, Any]]) -> None:
         conn.close()
 
 
-def get_violations(filters: dict[str, str] | None = None) -> list[dict[str, Any]]:
+def get_violations(filters: dict[str, str] | None = None, scan_id: str | None = None) -> list[dict[str, Any]]:
     """Query violations with optional filters. Returns list of dicts."""
     conn = get_connection()
     try:
         query = "SELECT * FROM violations WHERE 1=1"
         params: list[str] = []
+        if scan_id:
+            query += " AND scan_id = ?"
+            params.append(scan_id)
         if filters:
             if filters.get("severity"):
                 query += " AND severity = ?"
@@ -224,25 +234,74 @@ def insert_audit_entry(entry: dict[str, Any]) -> None:
         conn.close()
 
 
-def get_audit_trail() -> list[dict[str, Any]]:
-    """Return full audit history, newest first."""
+def get_audit_trail(since: str | None = None) -> list[dict[str, Any]]:
+    """Return audit history newest first, optionally filtered to entries after `since` (ISO timestamp)."""
+    conn = get_connection()
+    try:
+        if since:
+            rows = conn.execute(
+                "SELECT * FROM audit_trail WHERE timestamp >= ? ORDER BY timestamp DESC",
+                (since,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM audit_trail ORDER BY timestamp DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def clear_score_history() -> None:
+    """Wipe all score history rows — called on backend startup for a fresh session."""
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM score_history")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_score_snapshot(score: int, event: str, timestamp: str | None = None) -> None:
+    """Record a compliance score data point for trend charting."""
+    from datetime import datetime as _dt
+    conn = get_connection()
+    ts = timestamp or _dt.now().isoformat()
+    try:
+        conn.execute(
+            "INSERT INTO score_history (timestamp, score, event) VALUES (?, ?, ?)",
+            (ts, score, event),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_score_history() -> list[dict[str, Any]]:
+    """Return all score snapshots ordered by timestamp ascending."""
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT * FROM audit_trail ORDER BY timestamp DESC"
+            "SELECT * FROM score_history ORDER BY timestamp ASC"
         ).fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()
 
 
-def get_open_violations() -> list[dict[str, Any]]:
-    """Return all open violations for compliance score calculation."""
+def get_open_violations(scan_id: str | None = None) -> list[dict[str, Any]]:
+    """Return open violations, optionally scoped to a specific scan."""
     conn = get_connection()
     try:
-        rows = conn.execute(
-            "SELECT * FROM violations WHERE status = 'open'"
-        ).fetchall()
+        if scan_id:
+            rows = conn.execute(
+                "SELECT * FROM violations WHERE status = 'open' AND scan_id = ?",
+                (scan_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM violations WHERE status = 'open'"
+            ).fetchall()
         return [dict(row) for row in rows]
     finally:
         conn.close()

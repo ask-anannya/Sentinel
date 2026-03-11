@@ -28,6 +28,7 @@ USERS = [
         "approval_rights": True,
         "spending_limit": "$50,000",
         "approval_status": "Approved",
+        "contract_expiry": (datetime.now() + timedelta(days=274)).strftime("%Y-%m-%d"),
     },
     {
         "id": 2,
@@ -41,6 +42,7 @@ USERS = [
         "spending_limit": "$500,000",
         "approval_status": "Approved",
         "_note": "SHARED_ACCOUNT — shared finance account with approval rights",
+        "contract_expiry": (datetime.now() - timedelta(days=18)).strftime("%Y-%m-%d"),
     },
     {
         "id": 3,
@@ -54,6 +56,7 @@ USERS = [
         "spending_limit": "$200,000",
         "approval_status": "Approved",
         "_note": "INACTIVE_ADMIN — last login > 90 days",
+        "contract_expiry": (datetime.now() - timedelta(days=42)).strftime("%Y-%m-%d"),
     },
     {
         "id": 4,
@@ -67,6 +70,7 @@ USERS = [
         "spending_limit": "$100,000",
         "approval_status": "Approved",
         "_note": "INACTIVE_ADMIN — last login > 90 days",
+        "contract_expiry": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
     },
     {
         "id": 5,
@@ -79,6 +83,7 @@ USERS = [
         "approval_rights": False,
         "spending_limit": "$10,000",
         "approval_status": "Pending",
+        "contract_expiry": "N/A",
     },
     {
         "id": 6,
@@ -91,6 +96,7 @@ USERS = [
         "approval_rights": False,
         "spending_limit": "$5,000",
         "approval_status": "Approved",
+        "contract_expiry": "N/A",
     },
     {
         "id": 7,
@@ -103,6 +109,7 @@ USERS = [
         "approval_rights": False,
         "spending_limit": "$2,000",
         "approval_status": "Approved",
+        "contract_expiry": "N/A",
     },
 ]
 

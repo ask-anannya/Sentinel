@@ -76,6 +76,7 @@
                         <th>Department</th>
                         <th>Email</th>
                         <th>Last Login</th>
+                        <th>Failed Logins</th>
                         <th>Status</th>
                         <th>Access Level</th>
                         <th>Actions</th>
@@ -90,6 +91,9 @@
                         <td>{{ user.department }}</td>
                         <td>{{ user.email }}</td>
                         <td>{{ user.last_login }}</td>
+                        <td style="text-align:center; {% if user.failed_login_attempts > 3 %}color:#dc3545; font-weight:bold;{% endif %}">
+                            {{ user.failed_login_attempts }}
+                        </td>
                         <td>
                             {% if user.status == "Active" %}
                                 <span class="badge badge-active">Active</span>

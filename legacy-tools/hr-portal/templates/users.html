@@ -58,6 +58,7 @@
                     <th>Role</th>
                     <th>Department</th>
                     <th>Last Login</th>
+                    <th>Last Password Change</th>
                     <th>Account Status</th>
                     <th>Admin Access</th>
                     <th>Actions</th>
@@ -71,6 +72,7 @@
                     <td>{{ user.role }}</td>
                     <td>{{ user.department }}</td>
                     <td>{{ user.last_login }}</td>
+                    <td>{{ user.last_password_change }}</td>
                     <td>
                         {% if user.status == "Active" %}
                             <span class="status-active">&#9679; Active</span>

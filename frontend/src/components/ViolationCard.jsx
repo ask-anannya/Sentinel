@@ -12,6 +12,12 @@ const TOOL_ICONS = {
   'procurement':  { icon: ShoppingCart, label: 'Procurement v1.8' },
 }
 
+const SOC2_TOOLTIPS = {
+  'CC6.1': 'CC6.1 — Logical and Physical Access Controls: The entity implements logical access security measures to protect against unauthorized access.',
+  'CC6.2': 'CC6.2 — User Access Provisioning and Deprovisioning: The entity manages access credentials for personnel and removes access upon termination.',
+  'CC6.3': 'CC6.3 — Access Role Management: The entity authorizes and manages role-based access and restricts privileged access.',
+}
+
 const VIOLATION_LABELS = {
   ACCESS_VIOLATION: 'Access Violation',
   INACTIVE_ADMIN:   'Inactive Admin',
@@ -44,7 +50,10 @@ export default function ViolationCard({ violation, onRemediate, onDismiss, onVie
               <span className="text-xs text-slate-400 bg-slate-700 px-2 py-0.5 rounded">
                 {VIOLATION_LABELS[violation.violation_type] || violation.violation_type}
               </span>
-              <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded font-mono">
+              <span
+                className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded font-mono cursor-help underline decoration-dotted decoration-slate-600"
+                title={SOC2_TOOLTIPS[violation.soc2_control] || violation.soc2_control}
+              >
                 {violation.soc2_control}
               </span>
             </div>

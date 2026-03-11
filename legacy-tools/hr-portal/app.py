@@ -26,6 +26,7 @@ USERS = [
         "last_login": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
         "status": "Active",
         "is_admin": True,
+        "last_password_change": (datetime.now() - timedelta(days=28)).strftime("%Y-%m-%d"),
     },
     {
         "id": 2,
@@ -37,6 +38,7 @@ USERS = [
         "status": "Active",  # VIOLATION: Terminated employee with active admin access
         "is_admin": True,
         "_note": "TERMINATED in HR records — ACCESS_VIOLATION",
+        "last_password_change": (datetime.now() - timedelta(days=312)).strftime("%Y-%m-%d"),
     },
     {
         "id": 3,
@@ -48,6 +50,7 @@ USERS = [
         "status": "Active",  # VIOLATION: Admin account inactive 125 days
         "is_admin": True,
         "_note": "INACTIVE_ADMIN — last login > 90 days",
+        "last_password_change": (datetime.now() - timedelta(days=140)).strftime("%Y-%m-%d"),
     },
     {
         "id": 4,
@@ -58,6 +61,7 @@ USERS = [
         "last_login": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
         "status": "Active",
         "is_admin": False,
+        "last_password_change": (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d"),
     },
     {
         "id": 5,
@@ -68,6 +72,7 @@ USERS = [
         "last_login": (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d"),
         "status": "Active",
         "is_admin": True,
+        "last_password_change": (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d"),
     },
     {
         "id": 6,
@@ -78,6 +83,7 @@ USERS = [
         "last_login": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
         "status": "Active",
         "is_admin": True,
+        "last_password_change": (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d"),
     },
     {
         "id": 7,
@@ -88,6 +94,7 @@ USERS = [
         "last_login": (datetime.now() - timedelta(days=4)).strftime("%Y-%m-%d"),
         "status": "Active",
         "is_admin": False,
+        "last_password_change": (datetime.now() - timedelta(days=60)).strftime("%Y-%m-%d"),
     },
     {
         "id": 8,
@@ -98,6 +105,7 @@ USERS = [
         "last_login": (datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d"),
         "status": "Active",
         "is_admin": False,
+        "last_password_change": (datetime.now() - timedelta(days=52)).strftime("%Y-%m-%d"),
     },
 ]
 

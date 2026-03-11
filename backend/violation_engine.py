@@ -103,13 +103,14 @@ def analyze_violations(
     return all_violations
 
 
-def calculate_compliance_score() -> dict[str, Any]:
+def calculate_compliance_score(scan_id: str | None = None) -> dict[str, Any]:
     """
     Calculate compliance score based on open violations.
+    If scan_id is provided, only violations from that scan are counted.
     Deductions: CRITICAL=-15, HIGH=-8, MEDIUM=-4.
     Returns score dict.
     """
-    open_violations = database.get_open_violations()
+    open_violations = database.get_open_violations(scan_id=scan_id)
 
     role_policies = _load_role_policies()
     deductions = role_policies.get("compliance_score", {}).get(
