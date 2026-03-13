@@ -29,6 +29,12 @@ Sentinel is an autonomous compliance monitoring platform that:
 > **Demo-ready**: Ships with three fake legacy tool simulators (Flask apps styled after PeopleSoft, ServiceNow, and SAP) pre-seeded with compliance violations.
 
 ---
+##Try out the webapp
+`Username - admin , Password- admin123 for all the simulated portals`
+https://sentinel-stack-production.up.railway.app/ - Main app, after allowing microphone permission please close and re open the app and allow pop ups when prompted
+https://hr-production-ab26.up.railway.app/ - Simulated HR portal
+https://it-admin-production.up.railway.app/ - Simulated IT portal 
+https://procurement-production-dd23.up.railway.app/ - Simulated procurement portal 
 
 ## Architecture — Please find the detailed diagram in ARCHITECTURE.md
 
